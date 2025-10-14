@@ -280,7 +280,7 @@ CREEP_CONFIG = {
         "name": "魔王",
         "hp": 150,
         "speed": 0.06,
-        "reward": 50,
+        "reward": 30,
         "attack": 20,
         "color": (255, 60, 60)
     }
