@@ -49,8 +49,9 @@ def apply_external_config():
 # 套用一次外部設定（需在載入圖片與地圖之前）
 apply_external_config()
 towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
-current_spawn = None   # 本波實際出怪口
-next_spawn = None      # 下一波預告出怪口（按 N 前就會看見）
+current_spawns = None  # 本波實際出怪口（可為多個座標）
+next_spawns = None     # 下一波預告出怪口清單（2~3 或僅 1 個）
+_spawn_rot = 0         # 本波輪替用索引，於每次出怪遞增
 
 # --- 遊戲狀態（主選單 / 遊戲中 / 說明） ---
 GAME_MENU    = 'menu'
@@ -1050,14 +1051,27 @@ def center_px(r,c): x,y=grid_to_px(r,c); return x+CELL/2,y+CELL/2
 def manhattan(a,b):
     return abs(int(a[0]) - int(b[0])) + abs(int(a[1]) - int(b[1]))
 
+# 決定本波使用哪些出怪口：
+# - 若總出口數 <= 3：僅 1 個隨機出口
+# - 若總出口數 >= 4：隨機取 2~3 個不重複出口
+def choose_wave_spawns():
+    n = len(SPAWNS)
+    if n <= 0:
+        return []
+    if n <= 3:
+        return [random.choice(SPAWNS)]
+    k = random.choice((2, 3))
+    k = min(k, n)
+    return random.sample(SPAWNS, k)
+
 def draw_panel():
     pygame.draw.rect(screen, PANEL, (0,0,W,TOP))
     txt = FONT.render(f"$ {gold}    Wave {wave}{' (spawning)' if wave_incoming else ''}    Speed x{speed}", True, TEXT)
     screen.blit(txt, (16, 10))
     tips = FONT.render("C升級主堡 S回收｜Space暫停/開始｜N下一波｜R重置｜1/2/3速度", True, TEXT)
     screen.blit(tips, (16, TOP-28))
-    if not wave_incoming and next_spawn:
-        nr, nc = next_spawn
+    if not wave_incoming and next_spawns:
+        nr, nc = (next_spawns[0] if next_spawns else (0,0))
         info = FONT.render(f"＊＊下一波出口：怪物 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
         screen.blit(info, (16, 610))
 
@@ -1296,8 +1310,8 @@ def draw_map():
             # 格線
             pygame.draw.rect(screen, GRID, rect, 1)
             # 預告箭頭：在下一波的 S 出口上方顯示
-            if not wave_incoming and next_spawn:
-                if (r, c) == next_spawn and ARROW_IMG:
+            if not wave_incoming and next_spawns:
+                if ((r, c) in next_spawns) and ARROW_IMG:
                     ar = ARROW_IMG.get_rect(center=(x + CELL//2, y + CELL//2))
                     screen.blit(ARROW_IMG, ar)
 
@@ -1617,7 +1631,7 @@ def spawn_logic():
     - 血量每波 +1%，速度每波 +3%
     """
     global spawn_counter, wave_incoming, creeps, ids
-    global next_spawn, current_spawn, wave_spawn_queue
+    global next_spawns, current_spawns, wave_spawn_queue, _spawn_rot
 
     if not wave_incoming:
         return
@@ -1636,12 +1650,13 @@ def spawn_logic():
         if not (wave > 0 and wave % 10 == 0):
             random.shuffle(wave_spawn_queue)
 
-        # 決定本波出怪口：沿用先前指定；若有預告則覆寫；最後才隨機
-        if next_spawn is not None:
-            current_spawn = next_spawn
-        elif current_spawn is None:
-            current_spawn = random.choice(SPAWNS) if SPAWNS else (ROWS-1, COLS//2)
-        next_spawn = None  # 用掉預告
+        # 決定本波出怪口（可能為多個）：優先使用預告；否則依規則抽取
+        if next_spawns is not None:
+            current_spawns = list(next_spawns)
+        elif current_spawns is None:
+            current_spawns = choose_wave_spawns()
+        next_spawns = None  # 用掉預告
+        _spawn_rot = 0
 
     # 到點出怪
     if spawn_counter % SPAWN_INTERVAL == 0 and wave_spawn_queue:
@@ -1653,7 +1668,11 @@ def spawn_logic():
         base_speed = float(cfg.get('speed', CREEP.get(kind, {}).get('speed', 0.02)))
         reward     = int(cfg.get('reward', CREEP.get(kind, {}).get('reward', 1)))
 
-        sr, sc = current_spawn if current_spawn else (SPAWNS[0] if SPAWNS else (ROWS-1, COLS//2))
+        if current_spawns:
+            sr, sc = current_spawns[_spawn_rot % len(current_spawns)]
+            _spawn_rot += 1
+        else:
+            sr, sc = (SPAWNS[0] if SPAWNS else (ROWS-1, COLS//2))
         route  = PATHS.get((sr, sc)) or [(sr, sc), (CASTLE_ROW, CASTLE_COL)]
 
         # 成長：血量每波 +1%，速度每波 +3%
@@ -1913,26 +1932,27 @@ def sell_tower_at(r,c):
             return
 
 def next_wave():
-    global wave, wave_incoming, spawn_counter, current_spawn, next_spawn
+    global wave, wave_incoming, spawn_counter, current_spawns, next_spawns, _spawn_rot
     if wave_incoming: return
     wave += 1
     wave_incoming = True
     spawn_counter = 0
-    # 使用預告的出口，若沒有則抽一個
-    if next_spawn:
-        current_spawn = next_spawn
-        next_spawn = None
-    else:
-        current_spawn = random.choice(SPAWNS) if SPAWNS else (ROWS-1, COLS//2)
+    # 使用預告的出口群，若沒有則依規則抽取
+    if next_spawns:
+        current_spawns = list(next_spawns)
+        next_spawns = None
+    elif current_spawns is None:
+        current_spawns = choose_wave_spawns()
+    _spawn_rot = 0
 
 def reset_game():
     global running, tick, gold, life, wave, wave_incoming, spawn_counter, towers, creeps, bullets, hits, corpses, gains, upgrades
     running=False; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
-    globals()['current_spawn'] = None
-    globals()['current_spawn'] = None
-    globals()['next_spawn'] = None
+    globals()['current_spawns'] = None
+    globals()['next_spawns'] = None
+    globals()['_spawn_rot'] = 0
     init_starting_hand()
     # 重置主堡狀態
     CASTLE['level'] = 1
@@ -2467,7 +2487,7 @@ def generate_random_map():
     return True
 
 def main():
-    global tick, life, running, next_spawn, game_state
+    global tick, life, running, next_spawns, game_state
     while True:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT: pygame.quit(); sys.exit()
@@ -2500,9 +2520,9 @@ def main():
             for _ in range(speed):
                 tick += 1
                 spawn_logic(); move_creeps(); towers_step(); bullets_step()
-        # 無論是否暫停：當不再出怪且場上沒有怪時，才抽下一波預告出口
-        if not wave_incoming and next_spawn is None and not creeps and SPAWNS:
-            next_spawn = random.choice(SPAWNS)
+        # 無論是否暫停：當不再出怪且場上沒有怪時，才抽下一波預告出口（支援多出口）
+        if not wave_incoming and next_spawns is None and not creeps and SPAWNS:
+            next_spawns = choose_wave_spawns()
 
         if BG_IMG:
             screen.blit(BG_IMG, (0,0))
