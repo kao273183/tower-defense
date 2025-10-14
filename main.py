@@ -1049,7 +1049,7 @@ def draw_panel():
     screen.blit(tips, (16, TOP-28))
     if not wave_incoming and next_spawn:
         nr, nc = next_spawn
-        info = FONT.render(f"＊＊下一波出口：S 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
+        info = FONT.render(f"＊＊下一波出口：怪物 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
         screen.blit(info, (16, 620))
 
     # 右上角：開始/暫停圖示
