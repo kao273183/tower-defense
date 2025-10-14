@@ -435,7 +435,7 @@ NOTICES = []  # [{'text': str, 'ttl': int, 'color': (r,g,b), 'x': int|None, 'y':
 NOTICE_TTL = 90
 # 預設通知顯示位置與樣式（可改）
 NOTICE_X = 500
-NOTICE_Y = 620
+NOTICE_Y = 610
 NOTICE_LINE_GAP = 22
 NOTICE_ALIGN_DEFAULT = 'left'  # 'left' | 'right' | 'center'
 #基本開局
@@ -893,7 +893,7 @@ def sfx(sound):
         if not sound:
             return
         # 避免點擊音造成卡頓：可用 ENABLE_CLICK_SFX 控制
-        if (sound is SFX_CLICK) and (not ENABLE_CLICK_SFX):
+        if (sound is SFX_CLICK) and (not ENABLE_CLICK_SFX) and (game_state in (GAME_PLAY,)):
             return
         sound.play()
     except Exception:
@@ -2222,6 +2222,7 @@ def handle_click(pos):
         ]
         for name, r in btns:
             if r.collidepoint(mx, my):
+                sfx(SFX_CLICK)
                 if name == 'start':
                     if IS_WEB:
                         try: pygame.mixer.stop()
@@ -2245,6 +2246,7 @@ def handle_click(pos):
         for i, item in enumerate(MAP_CHOICES):
             r = pygame.Rect(cx, y0 + i*(item_h+gap), item_w, item_h)
             if r.collidepoint(mx, my):
+                sfx(SFX_CLICK)
                 set_current_map(item['path'])
                 start_game()
                 return
