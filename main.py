@@ -163,6 +163,7 @@ def get_card_scaled(name):
 # 玩家卡資料
 hand = []                # 目前手牌（最多可先不限制或自行加上上限）
 selected_card = None     # 被選取的手牌索引或名稱
+MAX_HAND_CARDS = 5
 HAND_UI_RECTS = []  # 每幀重建：[(rect, index)]
 #主堡設定
 CASTLE = {
@@ -902,7 +903,7 @@ def draw_hand_bar():
     pygame.draw.rect(screen, (50, 120, 255), glow_rect, 2, border_radius=12)
 
     # 提示文字
-    tip = f"D 抽卡(-${CARD_COST_DRAW})｜左鍵：地圖出牌建塔/升級"
+    tip = f"D 抽卡(-${CARD_COST_DRAW})｜左鍵：地圖出牌建塔/升級｜右鍵手牌：丟棄"
     if selected_card is not None and 0 <= selected_card < len(hand):
         tip += f"｜已選：{hand[selected_card]}"
     hint = FONT.render(tip, True, (220, 230, 240))
@@ -1637,6 +1638,9 @@ def draw_card():
         add_notice(f"金幣不足：抽卡需要 ${CARD_COST_DRAW}", (255,120,120))
         # sfx(SFX_CLICK)
         return
+    if len(hand) >= MAX_HAND_CARDS:
+        add_notice("卡牌已達上限，請先丟棄卡片再抽！", color=(255,180,120))
+        return
     # 通過檢查 → 抽卡
     import random
     gold -= CARD_COST_DRAW
@@ -1855,6 +1859,28 @@ def handle_click(pos):
     else:
         add_notice("請先選擇要使用的卡片", (255,180,120))
 
+
+# 新增：右鍵手牌丟棄
+def handle_right_click(pos):
+    global selected_card, hand
+    mx, my = pos
+    # 只處理在遊戲中
+    if game_state not in (GAME_PLAY,):
+        return
+    # 檢查是否點到手牌列：右鍵丟棄
+    for rct, idx in HAND_UI_RECTS:
+        if rct.collidepoint(mx, my):
+            if 0 <= idx < len(hand):
+                discarded = hand.pop(idx)
+                # 調整已選索引
+                if selected_card is not None:
+                    if selected_card == idx:
+                        selected_card = None
+                    elif selected_card > idx:
+                        selected_card -= 1
+                add_notice(f"丟棄 {discarded} 卡牌", (200,150,255))
+            return
+
 def main():
     global tick, life, running, next_spawn, game_state
     while True:
@@ -1862,6 +1888,7 @@ def main():
             if ev.type == pygame.QUIT: pygame.quit(); sys.exit()
             elif ev.type == pygame.KEYDOWN: handle_keys(ev)
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1: handle_click(ev.pos)
+            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 3: handle_right_click(ev.pos)
 
         if game_state == GAME_LOADING:
             # 若仍在載入（極少數情況），持續顯示載入畫面
