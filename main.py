@@ -13,9 +13,10 @@ IS_WEB = (sys.platform == "emscripten")
 V0.0.3 新增：主選單
 V0.0.4 新增：抽卡機制
 V0.0.5 新增：地圖選擇
+V0.0.6 新增：出怪口隨機出現
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.58-Beta"
+TITLENAME = "塔路之戰-V0.0.6-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
