@@ -17,7 +17,7 @@ V0.0.52 新增：多了幾個怪物
 V0.0.53 修正:怪物血量、攻擊力、速度調整
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.55-Beta"
+TITLENAME = "塔路之戰-V0.0.56-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -371,7 +371,7 @@ SFX_DEATH   = None
 SFX_COIN    = None
 SFX_LEVELUP = None
 SFX_CLICK   = None
-BGM_PATH    = "assets/sfx/bgm.mp3"
+BGM_PATH    = "assets/sfx/bgMusic.WAV"
 SFX_DIR     = "assets/sfx"
 SFX_VOL     = 0.6   # 全局音量（0~1）
 BGM_VOL     = 0.35
