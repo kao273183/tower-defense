@@ -72,6 +72,7 @@ MAP_FILE_PATH   = "assets/map/map1.txt"  # 可用字元: '0'=可建, '1'=道路,
 # --- 地圖選擇相關 ---
 MAPS_DIR        = "assets/map"
 MAP_CHOICES     = []   # [{'name': 'map1', 'path': 'assets/map/map1.txt'}, ...]
+RANDOM_MAP_TOKEN = "__RANDOM_MAP__"
 selected_map_idx = 0
 
 def discover_maps():
@@ -371,7 +372,7 @@ SFX_DEATH   = None
 SFX_COIN    = None
 SFX_LEVELUP = None
 SFX_CLICK   = None
-BGM_PATH    = "assets/sfx/bgMusic.WAV"
+BGM_PATH    = "assets/sfx/bgm.WAV"
 SFX_DIR     = "assets/sfx"
 SFX_VOL     = 0.6   # 全局音量（0~1）
 BGM_VOL     = 0.35
@@ -2168,6 +2169,16 @@ def handle_keys(ev):
             set_current_map(MAP_CHOICES[selected_map_idx]['path'])
             start_game()
             return
+        elif ev.key == pygame.K_r:
+            # 直接使用隨機地圖開始
+            sfx(SFX_CLICK)
+            generate_random_map()
+            try:
+                rebuild_paths()
+            except Exception:
+                pass
+            start_game()
+            return
     elif game_state == GAME_HELP:
         if ev.key in (pygame.K_RETURN, pygame.K_SPACE):
             sfx(SFX_CLICK)
@@ -2247,7 +2258,14 @@ def handle_click(pos):
             r = pygame.Rect(cx, y0 + i*(item_h+gap), item_w, item_h)
             if r.collidepoint(mx, my):
                 sfx(SFX_CLICK)
-                set_current_map(item['path'])
+                if item.get('path') == RANDOM_MAP_TOKEN:
+                    generate_random_map()
+                    try:
+                        rebuild_paths()
+                    except Exception:
+                        pass
+                else:
+                    set_current_map(item['path'])
                 start_game()
                 return
         # 點擊空白不做事
@@ -2330,6 +2348,49 @@ def handle_right_click(pos):
                         selected_card -= 1
                 add_notice(f"丟棄 {discarded} 卡牌", (200,150,255))
             return
+
+def generate_random_map():
+    """隨機產生一張可用地圖。
+    - 在頂部放置主堡（2）
+    - 在底部隨機放置 1~3 個出怪點（存於 SPAWNS）
+    - 挖出從每個出怪點通往主堡的道路（1）
+    其餘格為 0（可建造）
+    """
+    global MAP, SPAWNS, CASTLE_ROW, CASTLE_COL
+    rows, cols = ROWS, COLS
+    m = [[0 for _ in range(cols)] for _ in range(rows)]
+    CASTLE_ROW = 0
+    CASTLE_COL = max(1, min(cols-2, cols // 2))
+    m[CASTLE_ROW][CASTLE_COL] = 2
+    spawn_cnt = random.randint(1, 3)
+    spawn_cols = sorted(random.sample(range(1, cols-1), k=spawn_cnt))
+    SPAWNS = [(rows-1, c) for c in spawn_cols]
+    for sr, sc in SPAWNS:
+        r, c = sr, sc
+        m[r][c] = 1
+        safety = rows*cols*4
+        while not (r == CASTLE_ROW and c == CASTLE_COL) and safety>0:
+            safety -= 1
+            step_choices = []
+            if r > CASTLE_ROW:
+                step_choices.append((-1, 0))
+            if c < CASTLE_COL:
+                step_choices.append((0, 1))
+            if c > CASTLE_COL:
+                step_choices.append((0, -1))
+            if random.random() < 0.2:
+                step_choices += [(0, 1), (0, -1)]
+            if not step_choices:
+                break
+            dr, dc = random.choice(step_choices)
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < rows and 0 <= nc < cols:
+                r, c = nr, nc
+                if m[r][c] != 2:
+                    m[r][c] = 1
+        m[CASTLE_ROW][CASTLE_COL] = 2
+    MAP = m
+    return True
 
 def main():
     global tick, life, running, next_spawn, game_state
