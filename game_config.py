@@ -48,8 +48,8 @@ TOWER_TYPES = {
     'arrow': {
         0: {'atk': 1, 'range': 2, 'rof': 1.0},
         1: {'atk': 2, 'range': 2, 'rof': 1.2},
-        2: {'atk': 3, 'range': 3, 'rof': 1.6},
-        3: {'atk': 4, 'range': 3, 'rof': 2.0},
+        2: {'atk': 2, 'range': 3, 'rof': 1.6},
+        3: {'atk': 3, 'range': 3, 'rof': 2.0},
     },
     'rocket': {
         0: {'atk': 3, 'range': 3, 'rof': 0.8},
@@ -57,11 +57,29 @@ TOWER_TYPES = {
         2: {'atk': 5, 'range': 3, 'rof': 1.2},
         3: {'atk': 6, 'range': 4, 'rof': 1.4},
     },
-    'thunder': {
-        0: {'atk': 3, 'range': 4, 'rof': 2.5},
-        1: {'atk': 4, 'range': 5, 'rof': 3.0},
-        2: {'atk': 5, 'range': 5, 'rof': 3.5},
-        3: {'atk': 6, 'range': 6, 'rof': 4.0},
+    'fire': {      # 火元素塔：高攻擊中速
+        0: {'atk': 4, 'range': 3, 'rof': 1.2},
+        1: {'atk': 6, 'range': 3, 'rof': 1.4},
+        2: {'atk': 8, 'range': 4, 'rof': 1.6},
+        3: {'atk': 10, 'range': 4, 'rof': 1.8},
+    },
+    'water': {     # 水元素塔：中攻擊、高減速
+        0: {'atk': 2, 'range': 4, 'rof': 1.5},
+        1: {'atk': 3, 'range': 4, 'rof': 1.8},
+        2: {'atk': 4, 'range': 5, 'rof': 2.0},
+        3: {'atk': 5, 'range': 5, 'rof': 2.2},
+    },
+    'land': {      # 土元素塔：高防禦、穩定攻擊
+        0: {'atk': 3, 'range': 3, 'rof': 1.0},
+        1: {'atk': 4, 'range': 3, 'rof': 1.2},
+        2: {'atk': 5, 'range': 4, 'rof': 1.3},
+        3: {'atk': 7, 'range': 4, 'rof': 1.4},
+    },
+    'wind': {      # 風元素塔：低攻擊、高速連射
+        0: {'atk': 1, 'range': 3, 'rof': 2.0},
+        1: {'atk': 2, 'range': 3, 'rof': 2.5},
+        2: {'atk': 3, 'range': 4, 'rof': 3.0},
+        3: {'atk': 4, 'range': 4, 'rof': 3.5},
     },
 }
 

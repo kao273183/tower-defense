@@ -257,11 +257,8 @@ TOWER_IMG_PATHS = {
 # 單一等級塔圖示大小
 TOWER_IMG_SIZE  = 36  # 圖片縮放邊長（像素）
 
-# 分支塔（功能型）圖
 ROCKET_TOWER_IMG       = None
 ROCKET_TOWER_IMG_PATH  = "assets/pic/rocket_tower.png"
-THUNDER_TOWER_IMG      = None
-THUNDER_TOWER_IMG_PATH = "assets/pic/thunder_tower.png"
 
 # 四元素塔 ICON（依元素顯示）
 FIRE_TOWER_IMG  = None
@@ -289,18 +286,16 @@ BUILD_COST = 10  # 蓋一座箭塔消耗金幣
 PRICES = {
     'build': {
         'arrow': BUILD_COST,    # 基本箭塔建造費
-        # 若未來要直接建造分支塔，可在此補：'rocket': 6, 'thunder': 6
+        # 若未來要直接建造分支塔，可在此補：'rocket': 6
     },
     'upgrade': {
         # 依等級索引（0→1, 1→2, 2→進化）
         'arrow':  [10, 15, 20],    # 升到 1/2/3 級的費用（到 3 級時觸發進化邏輯）
         'rocket': [40, 50],       # 0→1、1→2（若你定義 2 級為滿級）
-        'thunder':[40, 50],
     },
     'evolve': {
         # 從箭塔進化為分支塔的費用（可在設定檔覆蓋）
         'rocket': 60,
-        'thunder': 60,
     }
 }
 
@@ -348,24 +343,42 @@ def get_evolve_cost(target_type):
     return PRICES.get('evolve', {}).get(target_type, 60)
 #箭塔設定
 TOWER_TYPES = {
-    'arrow': {  # 普通箭塔（最高 3 級）
+    'arrow': {
         0: {'atk': 1, 'range': 2, 'rof': 1.0},
         1: {'atk': 2, 'range': 2, 'rof': 1.2},
         2: {'atk': 2, 'range': 3, 'rof': 1.6},
         3: {'atk': 3, 'range': 3, 'rof': 2.0},
     },
-    'rocket': {  # 火箭塔：高傷害＋範圍爆炸（最高 3 級）
+    'rocket': {
         0: {'atk': 3, 'range': 3, 'rof': 0.8},
         1: {'atk': 4, 'range': 3, 'rof': 1.0},
         2: {'atk': 5, 'range': 3, 'rof': 1.2},
         3: {'atk': 6, 'range': 4, 'rof': 1.4},
     },
-    'thunder': {  # 雷電塔：連鎖閃電（最高 3 級）
-        0: {'atk': 2, 'range': 4, 'rof': 2.5},
-        1: {'atk': 3, 'range': 5, 'rof': 3.0},
-        2: {'atk': 4, 'range': 5, 'rof': 3.5},
-        3: {'atk': 5, 'range': 6, 'rof': 4.0},
-    }
+    'fire': {      # 火元素塔：高攻擊中速
+        0: {'atk': 4, 'range': 3, 'rof': 1.2},
+        1: {'atk': 6, 'range': 3, 'rof': 1.4},
+        2: {'atk': 8, 'range': 4, 'rof': 1.6},
+        3: {'atk': 10, 'range': 4, 'rof': 1.8},
+    },
+    'water': {     # 水元素塔：中攻擊、高減速
+        0: {'atk': 2, 'range': 4, 'rof': 1.5},
+        1: {'atk': 3, 'range': 4, 'rof': 1.8},
+        2: {'atk': 4, 'range': 5, 'rof': 2.0},
+        3: {'atk': 5, 'range': 5, 'rof': 2.2},
+    },
+    'land': {      # 土元素塔：高防禦、穩定攻擊
+        0: {'atk': 3, 'range': 3, 'rof': 1.0},
+        1: {'atk': 4, 'range': 3, 'rof': 1.2},
+        2: {'atk': 5, 'range': 4, 'rof': 1.3},
+        3: {'atk': 7, 'range': 4, 'rof': 1.4},
+    },
+    'wind': {      # 風元素塔：低攻擊、高速連射
+        0: {'atk': 1, 'range': 3, 'rof': 2.0},
+        1: {'atk': 2, 'range': 3, 'rof': 2.5},
+        2: {'atk': 3, 'range': 4, 'rof': 3.0},
+        3: {'atk': 4, 'range': 4, 'rof': 3.5},
+    },
 }
 
 # ---- Optional: override tower attack from external config (game_config.py) ----
@@ -615,9 +628,6 @@ try:
     if os.path.exists(ROCKET_TOWER_IMG_PATH):
         _raw = pygame.image.load(ROCKET_TOWER_IMG_PATH).convert_alpha()
         ROCKET_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
-    if os.path.exists(THUNDER_TOWER_IMG_PATH):
-        _raw = pygame.image.load(THUNDER_TOWER_IMG_PATH).convert_alpha()
-        THUNDER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
 
     # 四元素圖示（用於依元素覆蓋顯示）
     if os.path.exists(FIRE_TOWER_IMG_PATH):
@@ -909,19 +919,28 @@ def draw_hand_bar():
     draw_x = start_x
     deck_rect = pygame.Rect(draw_x, y, slot_w, slot_h)
     # 畫卡底或藍色光框
+    # ===== 抽卡背面圖處理 =====
     if bg_img:
-        screen.blit(bg_img, deck_rect)
+        # 自訂抽卡背面大小（例如比普通卡稍大）
+        deck_img_w, deck_img_h = 80, 110
+        scaled_bg = pygame.transform.smoothscale(bg_img, (deck_img_w, deck_img_h))
+
+        # 把它放在 deck_rect 的中間，但略往上移一點
+        deck_img_x = deck_rect.centerx - deck_img_w // 2
+        deck_img_y = deck_rect.centery - deck_img_h // 2 - 5  # ← 向上 10px
+        screen.blit(scaled_bg, (deck_img_x, deck_img_y))
     else:
+        # 沒有圖就畫藍色光框
         pygame.draw.rect(screen, (31, 42, 68), deck_rect, border_radius=10)
         pygame.draw.rect(screen, (50, 120, 255), deck_rect, 4, border_radius=10)
     # 在卡片中央畫一個背面圖/符號
-    if bg_img:
+    #if bg_img:
         # 若有 bg 圖已繪製，疊加一個簡單圖樣
         # 可在此加裝飾
-        pass
-    else:
+    #    pass
+    #else:
         # 畫一個藍色光框
-        pygame.draw.rect(screen, (50, 120, 255), deck_rect, 4, border_radius=10)
+    #    pygame.draw.rect(screen, (50, 120, 255), deck_rect, 4, border_radius=10)
     # 上方加文字
     deck_label = SMALL.render("抽卡區", True, (180, 210, 255))
     deck_label_x = deck_rect.centerx - deck_label.get_width() // 2
@@ -937,16 +956,15 @@ def draw_hand_bar():
         HAND_UI_RECTS.append((rect, i))
 
         # 卡底：有些卡片圖本身含有外框，避免再疊 BgCard 造成「多重外框」
-        if name in CARD_SKIP_SLOT_BG:
-            # 略過 BgCard，只畫一個細緣讓位置一致
-            pygame.draw.rect(screen, (31, 42, 68), rect, border_radius=10)
-            pygame.draw.rect(screen, (50, 120, 255), rect, 2, border_radius=10)
-        else:
-            if bg_img:
-                screen.blit(bg_img, rect)
-            else:
-                pygame.draw.rect(screen, (31, 42, 68), rect, border_radius=10)
-                pygame.draw.rect(screen, (90, 120, 200), rect, 2, border_radius=10)
+        #if name in CARD_SKIP_SLOT_BG:
+            # 升級卡：完全不畫外框或槽底，避免「雙框」
+        #    pass
+        #else:
+        #    if bg_img:
+        #        screen.blit(bg_img, rect)
+        #    else:
+        #        pygame.draw.rect(screen, (31, 42, 68), rect, border_radius=10)
+        #        pygame.draw.rect(screen, (90, 120, 200), rect, 2, border_radius=10)
 
         # 卡面圖
         img = get_card_scaled(name)
@@ -1103,13 +1121,6 @@ def draw_tower_icon(t):
         else:
             pygame.draw.circle(screen, (220,80,60), (cx, cy), CELL//2 - 6)
         return
-    elif ttype == 'thunder':
-        if 'THUNDER_TOWER_IMG' in globals() and THUNDER_TOWER_IMG:
-            rect = THUNDER_TOWER_IMG.get_rect(center=(cx, cy))
-            screen.blit(THUNDER_TOWER_IMG, rect)
-        else:
-            pygame.draw.circle(screen, (80,180,255), (cx, cy), CELL//2 - 6)
-        return
     else:
         # arrow：先嘗試用等級圖示，否則退回程式繪圖
         img = TOWER_IMGS.get(level)
@@ -1192,6 +1203,18 @@ def draw_hits():
             s = pygame.Surface((16,16), pygame.SRCALPHA)
             pygame.draw.circle(s, (255,240,180, alpha), (8,8), 6)
             screen.blit(s, (h['x']-8, h['y']-8))
+
+        if 'dmg' in h:
+            dmg = h['dmg']
+            dmg_text = f"{int(dmg)}"
+            color = h.get('color', (255, 200, 120))
+            text_surf = SMALL.render(dmg_text, True, color)
+            text_surf.set_alpha(alpha)
+            float_up = (1.0 - life_ratio) * 18
+            text_rect = text_surf.get_rect()
+            text_rect.midleft = (h['x'] + 18, h['y'] - float_up)
+            screen.blit(text_surf, text_rect)
+
         h['ttl'] -= 1
         if h['ttl'] > 0:
             alive.append(h)
@@ -1310,21 +1333,6 @@ def tower_fire(t):
     if not in_range: return
 
     # 特殊塔行為
-    if ttype == 'thunder':
-        targets = sorted(in_range, key=lambda m: m['r'])[:3]
-        for m in targets:
-            tx, ty = center_px(m['r'], int(m['c']))
-            hits.append({'x': tx, 'y': ty, 'ttl': 12})
-            sfx(SFX_HIT)
-            m['hp'] -= stat['atk']
-            if m['hp'] <= 0:
-                m['alive'] = False
-                corpses.append({'x': tx, 'y': ty, 'ttl': 24})
-                reward_amt = reward_for(m['type'])
-                gains.append({'x': tx, 'y': ty - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
-                gold += reward_amt
-                sfx(SFX_DEATH); sfx(SFX_COIN)
-        return
 
     # 一般與火箭塔共用射擊邏輯
     target = sorted(in_range, key=lambda m: m['r'])[0]
@@ -1344,8 +1352,6 @@ def tower_fire(t):
         'element': t.get('element'),
         'tlevel': t.get('level', 0)
     })
-    if t.get('element') == 'water':
-        _apply_status_on_hit(m, _get_elem_cfg('water', t.get('level',0)), stat['atk'])
 
 def spawn_logic():
     global spawn_counter, wave_incoming, creeps, ids, next_spawn
@@ -1480,7 +1486,7 @@ def bullets_step():
         if target and target['alive']:
             tx, ty = center_px(target['r'], int(target['c']))
             if math.hypot(b['x']-tx, b['y']-ty) < 10:
-                target['hp'] -= b['dmg']; hits.append({'x':tx,'y':ty,'ttl':12}); sfx(SFX_HIT)
+                target['hp'] -= b['dmg']; hits.append({'x':tx,'y':ty,'ttl':12,'dmg': b['dmg']}); sfx(SFX_HIT)
                 if target['hp'] <= 0:
                     target['alive'] = False
                     corpses.append({'x': tx, 'y': ty, 'ttl': 24})
@@ -1505,8 +1511,9 @@ def bullets_step():
                         continue
                     mx, my = center_px(m['r'], int(m['c']))
                     if math.hypot(mx-ax, my-ay) <= radius:
-                        m['hp'] -= max(1, int(round(b['dmg'] * 0.6)))
-                        hits.append({'x': mx, 'y': my, 'ttl': 8})
+                        splash_dmg = max(1, int(round(b['dmg'] * 0.6)))
+                        m['hp'] -= splash_dmg
+                        hits.append({'x': mx, 'y': my, 'ttl': 8, 'dmg': splash_dmg})
                         # 火元素：爆炸附帶灼傷
                         ecfg = _get_elem_cfg('fire', b.get('tlevel',0))
                         _apply_status_on_hit(m, ecfg, b['dmg'])
@@ -1700,7 +1707,7 @@ def use_card_on_grid(r, c):
             mapping = {
                 "fire": "rocket",
                 "wind": "arrow",   # 例如改為高攻速箭塔（可在 TOWER_TYPES['arrow'] 另設元素旗標）
-                "water": "thunder",# 例如改為連鎖/減速（可在 thunder 上做 slow 效果）
+                "water": "arrow",  # 不再使用 thunder 型塔，水元素以箭塔型呈現（效果仍由元素 slow 觸發）
                 "land": "arrow",   # 例如防禦/更高傷害（可在 arrow 上設 buff）
             }
             new_type = mapping.get(card, "arrow")
