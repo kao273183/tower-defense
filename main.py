@@ -317,7 +317,16 @@ BRUTE_IMG_SIZE   = 36
 BOSS_USE_IMAGE   = True
 BOSS_IMG_PATH    = "assets/pic/boss.png"
 BOSS_IMG_SIZE    = 44
-
+# 怪物圖片
+SLIME_USE_IMAGE  = True
+SLIME_IMG_PATH   = "assets/pic/slime.png"
+SLIME_IMG_SIZE   = 32
+BAT_USE_IMAGE    = True
+BAT_IMG_PATH     = "assets/pic/bat.png"
+BAT_IMG_SIZE     = 32
+GIANT_USE_IMAGE  = True
+GIANT_IMG_PATH   = "assets/pic/giant.png"
+GIANT_IMG_SIZE   = 32
 # --- 擊中效果（命中時的爆炸/特效）---
 HIT_USE_IMAGE = True
 HIT_IMG_PATH  = "assets/pic/blast.png"
@@ -678,9 +687,11 @@ def loading_tick(message):
     # 不阻塞主線，只是畫面更新
 
 # 嘗試載入各怪物圖片與特效（失敗則退回程式繪圖）
-MONSTER_IMG = None   # grunt
+MONSTER_IMG = None   # slime/default
 RUNNER_IMG  = None
 BRUTE_IMG   = None
+BAT_IMG     = None
+BOSS_IMG    = None
 BOSS_IMG    = None
 BLAST_IMG   = None   # 擊中圖片
 DEAD_IMG    = None   # 死亡圖片
@@ -705,6 +716,9 @@ try:
     if BRUTE_USE_IMAGE and os.path.exists(BRUTE_IMG_PATH):
         _raw = pygame.image.load(BRUTE_IMG_PATH).convert_alpha()
         BRUTE_IMG = pygame.transform.smoothscale(_raw, (BRUTE_IMG_SIZE, BRUTE_IMG_SIZE))
+    if BAT_USE_IMAGE and os.path.exists(BAT_IMG_PATH):
+        _raw = pygame.image.load(BAT_IMG_PATH).convert_alpha()
+        BAT_IMG = pygame.transform.smoothscale(_raw, (BAT_IMG_SIZE, BAT_IMG_SIZE))
     if BOSS_USE_IMAGE and os.path.exists(BOSS_IMG_PATH):
         _raw = pygame.image.load(BOSS_IMG_PATH).convert_alpha()
         BOSS_IMG = pygame.transform.smoothscale(_raw, (BOSS_IMG_SIZE, BOSS_IMG_SIZE))
@@ -962,10 +976,58 @@ def in_bounds(r,c): return 0<=r<ROWS and 0<=c<COLS
 def is_buildable(r,c): return in_bounds(r,c) and MAP[r][c]==0
 
 TOWER = TOWER_TYPES['arrow']
-CREEP={'grunt':{'hp':6,'speed':.020,'reward':1,'color':(244,162,75)},
-'runner':{'hp':5,'speed':.035,'reward':1,'color':(34,179,230)},
-'brute':{'hp':12,'speed':.017,'reward':2,'color':(239,106,106)},
-'boss':{'hp':40,'speed':.012,'reward':6,'color':(139,92,246)}}
+CREEP= {
+    "slime": {
+        "name": "史萊姆",
+        "hp": 10,
+        "speed": 0.01,
+        "reward": 1,
+        "attack": 1,
+        "color": (120, 255, 120),
+        "image": SLIME_IMG_PATH
+    },
+    "runner": {
+        "name": "鬼魂",
+        "hp": 10,
+        "speed": 0.02,
+        "reward": 2,
+        "attack": 2,
+        "color": (180, 130, 90),
+        "image": RUNNER_IMG_PATH
+    },
+    "bat": {
+        "name": "蝙蝠",
+        "hp": 20,
+        "speed": 0.02,
+        "reward": 1,
+        "attack": 1,
+        "color": (120, 120, 220),
+        "image": BAT_IMG_PATH
+    },
+    "giant": {
+        "name": "巨人",
+        "hp": 60,
+        "speed": 0.05,
+        "reward": 10,
+        "attack": 5,
+        "color": (200, 80, 80),
+        "image":GIANT_IMG_PATH
+    },
+    "boss": {
+        "name": "魔王",
+        "hp": 1000,
+        "speed": 0.06,
+        "reward": 50,
+        "attack": 20,
+        "color": (255, 60, 60)
+    }
+}
+
+# 將外部設定的怪物資料合併進內建表，確保新種類（如 grunt）能取得顏色與獎勵等屬性
+for _cname, _cfg in CREEP_CONFIG.items():
+    merged = CREEP.get(_cname, {}).copy()
+    merged.update(_cfg)
+    CREEP[_cname] = merged
 
 running=False; speed=1; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
 towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[];effects = []
@@ -1274,8 +1336,11 @@ def draw_tower_icon(t):
         pygame.draw.polygon(screen, (230,127,57), pts); pygame.draw.polygon(screen, (25,30,43), pts, 2)
 
 def draw_monster_icon(m):
-    x,y = grid_to_px(int(m['r']), int(m['c'])); cx, cy = x+CELL//2, y+CELL//2; color = CREEP[m['type']]['color']
-    if m['type']=="runner":
+    mtype = m.get('type', 'slime')
+    x,y = grid_to_px(int(m['r']), int(m['c']))
+    cx, cy = x + CELL//2, y + CELL//2
+    color = CREEP.get(mtype, {}).get('color', (200, 200, 200))
+    if mtype == "runner":
         if RUNNER_IMG:
             rect = RUNNER_IMG.get_rect(center=(cx, cy))
             screen.blit(RUNNER_IMG, rect)
@@ -1283,7 +1348,7 @@ def draw_monster_icon(m):
             pts = [(cx-14,cy+8),(cx-4,cy-8),(cx+18,cy-2),(cx+10,cy+10)]
             pygame.draw.polygon(screen, color, pts); pygame.draw.polygon(screen, (15,19,32), pts, 2)
             pygame.draw.circle(screen, (255,255,255), (cx-2,cy-4), 3); pygame.draw.circle(screen, (255,255,255), (cx+6,cy-6), 3)
-    elif m['type']=="brute":
+    elif mtype == "brute":
         if BRUTE_IMG:
             rect = BRUTE_IMG.get_rect(center=(cx, cy))
             screen.blit(BRUTE_IMG, rect)
@@ -1291,7 +1356,17 @@ def draw_monster_icon(m):
             pygame.draw.rect(screen, color, (cx-18,cy-8,36,22), border_radius=8)
             pygame.draw.rect(screen, (15,19,32), (cx-18,cy-8,36,22), 2, border_radius=8)
             pygame.draw.rect(screen, color, (cx-10,cy-18,20,12), border_radius=6)
-    elif m['type']=="boss":
+    elif mtype == "bat":
+        if BAT_IMG:
+            rect = BAT_IMG.get_rect(center=(cx, cy))
+            screen.blit(BAT_IMG, rect)
+        else:
+            wing_span = CELL//2
+            pts = [(cx-wing_span, cy), (cx, cy-10), (cx+wing_span, cy), (cx, cy+10)]
+            pygame.draw.polygon(screen, color, pts); pygame.draw.polygon(screen, (15,19,32), pts, 2)
+            pygame.draw.circle(screen, (255, 255, 255), (cx-4, cy-2), 3)
+            pygame.draw.circle(screen, (255, 255, 255), (cx+4, cy-2), 3)
+    elif mtype == "boss":
         if BOSS_IMG:
             rect = BOSS_IMG.get_rect(center=(cx, cy))
             screen.blit(BOSS_IMG, rect)
@@ -1425,7 +1500,7 @@ def upgrade_castle():
 # 每一波擊殺金幣提升：比上一波多 1%
 # 例：第 1 波=1.01x，第 10 波≈1.1046x
 def reward_for(kind):
-    base = CREEP[kind]['reward']
+    base = CREEP.get(kind, {}).get('reward', 1)
     mult = 1.01 ** max(0, int(wave))  # 與血量一致：用 1.01 ** wave
     return max(1, int(round(base * mult)))
 def draw_upgrades():
@@ -1483,59 +1558,74 @@ def tower_fire(t):
     })
 
 def spawn_logic():
-    global spawn_counter, wave_incoming, creeps, ids, next_spawn, current_spawn, wave_spawn_queue
+    """
+    依 get_wave_creeps(wave) 建立本波出怪佇列，並按 SPAWN_INTERVAL 出怪。
+    - 每 10 波：只會有 1 隻 boss（在 get_wave_creeps 已處理）
+    - 其他波：總數量介於 10~20，種類隨機（在 get_wave_creeps 已處理）
+    - 血量每波 +1%，速度每波 +3%
+    """
+    global spawn_counter, wave_incoming, creeps, ids
+    global next_spawn, current_spawn, wave_spawn_queue
+
     if not wave_incoming:
         return
 
-    # 首次進入本波：建立出怪佇列（依 game_config 設定）
+    # 首次進入本波：建立出怪佇列 & 確認本波出口
     if spawn_counter == 0 and not wave_spawn_queue:
-        plan = get_wave_creeps(wave)  # e.g. [{'type':'slime','count':5}, {'type':'orc','count':3}] or boss
+        plan = get_wave_creeps(wave)  # 例如 [{'type':'slime','count':5}, {'type':'runner','count':3}]
         wave_spawn_queue = []
         for item in plan:
             ctype = item.get('type')
             cnt   = int(item.get('count', 1))
             for _ in range(max(1, cnt)):
                 wave_spawn_queue.append(ctype)
-        # 小隨機化出怪順序（非 Boss 波時）
-        if not (wave % 10 == 0):
+
+        # 非 boss-only 波才洗牌
+        if not (wave > 0 and wave % 10 == 0):
             random.shuffle(wave_spawn_queue)
 
-    # 每 SPAWN_INTERVAL 幀出 1 隻
+        # 決定本波出怪口：沿用先前指定；若有預告則覆寫；最後才隨機
+        if next_spawn is not None:
+            current_spawn = next_spawn
+        elif current_spawn is None:
+            current_spawn = random.choice(SPAWNS) if SPAWNS else (ROWS-1, COLS//2)
+        next_spawn = None  # 用掉預告
+
+    # 到點出怪
     if spawn_counter % SPAWN_INTERVAL == 0 and wave_spawn_queue:
         kind = wave_spawn_queue.pop(0)
-        cdata = CREEP_CONFIG.get(kind)
-        if not cdata:
-            # 後相容：若設定缺失，退回舊表
-            cdata = {
-                'hp': CREEP.get(kind, {}).get('hp', 10),
-                'speed': CREEP.get(kind, {}).get('speed', 0.02),
-                'reward': CREEP.get(kind, {}).get('reward', 1),
-                'attack': CREEP.get(kind, {}).get('attack', 1),
-            }
 
-        sr, sc = (current_spawn if current_spawn else (SPAWNS[0] if SPAWNS else (ROWS-1, COLS//2)))
-        route = PATHS.get((sr, sc)) or [(sr, sc), (CASTLE_ROW, CASTLE_COL)]
+        # 從設定讀取基礎屬性（缺就用舊 CREEP 值當備援）
+        cfg = CREEP_CONFIG.get(kind, {})
+        base_hp    = int(cfg.get('hp',     CREEP.get(kind, {}).get('hp', 10)))
+        base_speed = float(cfg.get('speed', CREEP.get(kind, {}).get('speed', 0.02)))
+        reward     = int(cfg.get('reward', CREEP.get(kind, {}).get('reward', 1)))
 
-        # 成長：血量每波 +1%，移動速度每波 +3%
-        hp_scaled = int(round(cdata.get('hp', 10) * (1.01 ** wave)))
-        spd_scaled = float(cdata.get('speed', 0.02)) * (1.0 + 0.03 * wave)
+        sr, sc = current_spawn if current_spawn else (SPAWNS[0] if SPAWNS else (ROWS-1, COLS//2))
+        route  = PATHS.get((sr, sc)) or [(sr, sc), (CASTLE_ROW, CASTLE_COL)]
+
+        # 成長：血量每波 +1%，速度每波 +3%
+        hp_scaled  = max(1, int(round(base_hp * (1.01 ** max(0, int(wave))))))
+        spd_scaled = base_speed * (1.0 + 0.03 * max(0, int(wave)))
 
         creeps.append({
-            'id': ids['creep'], 'type': kind,
-            'r': float(sr), 'c': float(sc), 'wp': 1, 'route': route,
+            'id': ids['creep'],
+            'type': kind,
+            'r': float(sr), 'c': float(sc),
+            'wp': 1, 'route': route,
             'hp': hp_scaled, 'alive': True,
-            'speed': spd_scaled, 'reward': cdata.get('reward', 1),
+            'speed': spd_scaled, 'reward': reward,
             'effects': {}
         })
         ids['creep'] += 1
 
     spawn_counter += 1
 
-    # 本波結束條件：佇列清空且已過一輪出怪節點
-    if (not wave_spawn_queue) and (spawn_counter % SPAWN_INTERVAL == 0):
+    # 本波結束條件：佇列清空後就結束本波（預告在主循環「怪清空」時抽）
+    if not wave_spawn_queue and spawn_counter > 0:
         wave_incoming = False
         spawn_counter = 0
-        # 預告延後到所有怪被清空時再抽（在 main() 內判斷）
+        # 不立刻抽 next_spawn，讓主循環在「怪物清空」後再抽（你已有這段邏輯）
 
 def move_creeps():
     global life, creeps

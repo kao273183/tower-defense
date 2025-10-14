@@ -1,5 +1,4 @@
 # ==== 視窗 / 地圖 ====
-from main import LAND
 import random
 
 W = 960
@@ -133,7 +132,7 @@ TOWER_ATK_MULT = {
 }
 # ==== 怪物數值（可獨立調平衡）====
 CREEP = {
-    'grunt': {'hp': 6,  'speed': .020, 'reward': 1, 'color': (244,162,75)},
+    'slime': {'hp': 6,  'speed': .020, 'reward': 1, 'color': (120, 255, 120)},
     'runner':{'hp': 5,  'speed': .035, 'reward': 1, 'color': (34,179,230)},
     'brute': {'hp': 12, 'speed': .017, 'reward': 2, 'color': (239,106,106)},
     'boss':  {'hp': 40, 'speed': .012, 'reward': 6, 'color': (139,92,246)},
@@ -183,21 +182,21 @@ MONEY1_IMG_PATH = "assets/pic/money1.png"
 MONEY2_IMG_PATH = "assets/pic/money2.png"
 MONEY3_IMG_PATH = "assets/pic/money3.png"
 # 怪物圖片
-SLIME_IMG_PATH  = True
+SLIME_USE_IMAGE  = True
 SLIME_IMG_PATH   = "assets/pic/slime.png"
-SLIME_IMG_PATH   = 32
+SLIME_IMG_SIZE   = 32
 RUNNER_USE_IMAGE = True
 RUNNER_IMG_PATH  = "assets/pic/runner.png"
 RUNNER_IMG_SIZE  = 32
 BRUTE_USE_IMAGE  = True
 BRUTE_IMG_PATH   = "assets/pic/brute.png"
 BRUTE_IMG_SIZE   = 36
-BAT_IMG_PATH = True
-BAT_IMG_PATH   = "assets/pic/bat.png"
-BAT_IMG_SIZE   = 32
-GIANT_IMG_PATH = True
+BAT_USE_IMAGE    = True
+BAT_IMG_PATH     = "assets/pic/bat.png"
+BAT_IMG_SIZE     = 32
+GIANT_USE_IMAGE  = True
 GIANT_IMG_PATH   = "assets/pic/giant.png"
-GIANT_IMG_PATH   = 32
+GIANT_IMG_SIZE   = 32
 #BOSS
 BOSS_USE_IMAGE   = True
 BOSS_IMG_PATH    = "assets/pic/boss.png"
@@ -244,7 +243,7 @@ CREEP_CONFIG = {
     "slime": {
         "name": "史萊姆",
         "hp": 10,
-        "speed": 1.0,
+        "speed": 0.01,
         "reward": 1,
         "attack": 1,
         "color": (120, 255, 120),
@@ -253,7 +252,7 @@ CREEP_CONFIG = {
     "runner": {
         "name": "鬼魂",
         "hp": 10,
-        "speed": 0.8,
+        "speed": 0.02,
         "reward": 2,
         "attack": 2,
         "color": (180, 130, 90),
@@ -262,7 +261,7 @@ CREEP_CONFIG = {
     "bat": {
         "name": "蝙蝠",
         "hp": 20,
-        "speed": 1.5,
+        "speed": 0.02,
         "reward": 1,
         "attack": 1,
         "color": (120, 120, 220),
@@ -271,7 +270,7 @@ CREEP_CONFIG = {
     "giant": {
         "name": "巨人",
         "hp": 60,
-        "speed": 0.5,
+        "speed": 0.05,
         "reward": 10,
         "attack": 5,
         "color": (200, 80, 80),
@@ -280,7 +279,7 @@ CREEP_CONFIG = {
     "boss": {
         "name": "魔王",
         "hp": 1000,
-        "speed": 0.4,
+        "speed": 0.06,
         "reward": 50,
         "attack": 20,
         "color": (255, 60, 60)
@@ -298,3 +297,55 @@ def get_wave_creeps(wave_num: int):
             ctype = random.choice(base)
             creeps.append({"type": ctype, "count": 1})
     return creeps
+
+import random
+
+def get_wave_creeps(wave: int):
+    """
+    隨機生成該波怪物配置。
+    - 每 10 波出現一隻 boss。
+    - 其他波：隨機產生 10~20 隻非 boss 怪物。
+    """
+    if wave > 0 and wave % 10 == 0:
+        # 每 10 波 → 只出現 1 隻 Boss
+        return [{'type': 'boss', 'count': 1}]
+
+    # 可用的非 boss 怪物種類（從 CREEP_CONFIG 取）
+    try:
+        all_types = list(CREEP_CONFIG.keys())
+    except NameError:
+        all_types = ['slime', 'runner', 'bat', 'giant', 'boss']
+
+    non_boss = [k for k in all_types if k != 'boss']
+    if not non_boss:
+        non_boss = ['slime']
+
+    # 這一波的總怪數 10~20
+    total = random.randint(10, 20)
+    plan = []
+
+    # 將 total 拆分成隨機群組（2~5隻），並分配種類
+    remain = total
+    while remain > 0:
+        chunk = random.randint(2, 5)
+        if chunk > remain:
+            chunk = remain
+        kind = random.choice(non_boss)
+        plan.append({'type': kind, 'count': chunk})
+        remain -= chunk
+
+    # 35% 機率將其中一組替換為較強怪物（runner/bat/giant）
+    stronger_pool = [k for k in non_boss if k in ('runner', 'bat', 'giant')]
+    if stronger_pool and len(plan) >= 2 and random.random() < 0.35:
+        idx = random.randrange(len(plan))
+        plan[idx]['type'] = random.choice(stronger_pool)
+
+    # 確保至少包含常見種類（若有提供）
+    for must_have in ('slime', 'bat'):
+        if must_have in non_boss and all(p['type'] != must_have for p in plan):
+            if plan:
+                plan[random.randrange(len(plan))]['type'] = must_have
+            else:
+                plan.append({'type': must_have, 'count': max(2, total // 3)})
+
+    return plan
