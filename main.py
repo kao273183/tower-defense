@@ -2389,6 +2389,31 @@ def generate_random_map():
                 if m[r][c] != 2:
                     m[r][c] = 1
         m[CASTLE_ROW][CASTLE_COL] = 2
+
+    # 生成不可建造區域（GREY）：隨機挑選部分 0 格標記為 3
+    # 避開：道路(1)、主堡(2)、最上/最下列，以免擋住關鍵區域
+    zero_cells = [(r, c) for r in range(rows) for c in range(cols)
+                  if m[r][c] == 0 and r not in (0, rows-1)]
+    random.shuffle(zero_cells)
+    # 目標覆蓋率：依地圖大小取 10% 左右
+    target = max(1, int(len(zero_cells) * 0.12))
+    placed = 0
+    for r, c in zero_cells:
+        # 保留城堡周圍 1 格與道路鄰近 1 格，以利建塔
+        if abs(r - CASTLE_ROW) + abs(c - CASTLE_COL) <= 1:
+            continue
+        near_road = False
+        for dr, dc in ((1,0),(-1,0),(0,1),(0,-1)):
+            rr, cc = r+dr, c+dc
+            if 0 <= rr < rows and 0 <= cc < cols and m[rr][cc] == 1:
+                near_road = True; break
+        if near_road:
+            continue
+        m[r][c] = 3
+        placed += 1
+        if placed >= target:
+            break
+
     MAP = m
     return True
 
