@@ -1878,6 +1878,12 @@ def draw_card():
         sfx(SFX_CLICK)
         return
 
+    # 手牌滿：不允許抽卡也不扣費
+    if len(hand) >= MAX_HAND_CARDS:
+        add_notice("⚠️ 手牌已滿，無法抽卡。", (255, 120, 120))
+        sfx(SFX_CLICK)
+        return
+
     # 抽卡花費
     if gold < CARD_COST_DRAW:
         add_notice(f"金幣不足：抽卡需要 ${CARD_COST_DRAW}", (255,120,120))
