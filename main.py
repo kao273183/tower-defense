@@ -1108,7 +1108,7 @@ def draw_panel():
     #主堡
     # 顯示主堡狀態
     castle_txt = FONT.render(f"主堡Lv{CASTLE['level']}  HP:{CASTLE['hp']}", True, (255,255,255))
-    screen.blit(castle_txt, (16, 80))
+    screen.blit(castle_txt, (16, 75))
 
     # 若想顯示血條
     bar_x, bar_y, bar_w, bar_h = 16, 100, 160, 8
@@ -1429,7 +1429,7 @@ def draw_monster_icon(m):
         # 前景
         fill_w = int(bar_w * ratio)
         if fill_w > 0:
-            pygame.draw.rect(screen, (80, 220, 120), (bx, by, fill_w, bar_h))
+            pygame.draw.rect(screen, (180, 60, 60), (bx, by, fill_w, bar_h))
         # 邊框
         pygame.draw.rect(screen, (20, 20, 28), (bx, by, bar_w, bar_h), 1)
     except Exception:
@@ -2517,3 +2517,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
