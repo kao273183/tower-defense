@@ -102,22 +102,24 @@ def load_map_from_file():
 # === 卡片系統 ===
 CARD_COST_DRAW = 5       # 抽卡花費
 CARD_COST_BUILD = 10     # Basic_Tower 建置花費（與 BUILD_COST 保持一致或直接以此為主）
-CARD_POOL = ["basic", "fire", "wind", "water", "land"]  # 包含基本卡
+CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade"]  # 加入升級卡
 # 卡面圖與費用（使用你的素材）
 CARD_IMAGES = {
-    "basic": "assets/pic/Basic_Tower.png",
-    "fire":  "assets/pic/fireCard.png",
-    "wind":  "assets/pic/WindCard.png",
-    "water": "assets/pic/waterCard.png",
-    "land":  "assets/pic/landCard.png",
-    "bg":    "assets/pic/BgCard.png",   # 卡底背景
+    "basic":   "assets/pic/Basic_Tower.png",
+    "fire":    "assets/pic/fireCard.png",
+    "wind":    "assets/pic/WindCard.png",
+    "water":   "assets/pic/waterCard.png",
+    "land":    "assets/pic/landCard.png",
+    "upgrade": "assets/pic/UpgradeCard.png",   # 升級卡（請將圖放在此路徑）
+    "bg":      "assets/pic/BgCard.png",        # 卡底背景
 }
 CARD_COSTS = {
-    "basic": CARD_COST_BUILD,  # 10
-    "fire":  CARD_COST_DRAW,   # 5
-    "wind":  CARD_COST_DRAW,
-    "water": CARD_COST_DRAW,
-    "land":  CARD_COST_DRAW,
+    "basic":   CARD_COST_BUILD,  # 10
+    "fire":    CARD_COST_DRAW,   # 5
+    "wind":    CARD_COST_DRAW,
+    "water":   CARD_COST_DRAW,
+    "land":    CARD_COST_DRAW,
+    "upgrade": 0,                # 升級卡本身不再額外扣金幣
 }
 # === 卡片圖快取與縮放 ===
 CARD_SLOT_SIZE = (128, 128)   # 與 draw_hand_bar 一致
@@ -248,11 +250,26 @@ TOWER_IMG_PATHS = {
     2: "assets/pic/tower_lv3.png",
     3: "assets/pic/tower_lv3.png",   # 最高等沿用第三張
 }
-ROCKET_TOWER_IMG = None
-ROCKET_TOWER_IMG_PATH = "assets/pic/rocket_tower.png"
-THUNDER_TOWER_IMG = None
+
+# 單一等級塔圖示大小
+TOWER_IMG_SIZE  = 36  # 圖片縮放邊長（像素）
+
+# 分支塔（功能型）圖
+ROCKET_TOWER_IMG       = None
+ROCKET_TOWER_IMG_PATH  = "assets/pic/rocket_tower.png"
+THUNDER_TOWER_IMG      = None
 THUNDER_TOWER_IMG_PATH = "assets/pic/thunder_tower.png"
-TOWER_IMG_SIZE = 36  # 圖片縮放邊長（像素）
+
+# 四元素塔 ICON（依元素顯示）
+FIRE_TOWER_IMG  = None
+WATER_TOWER_IMG = None
+LAND_TOWER_IMG  = None
+WIND_TOWER_IMG  = None
+
+FIRE_TOWER_IMG_PATH  = "assets/pic/firetower.png"
+WATER_TOWER_IMG_PATH = "assets/pic/watertower.png"
+LAND_TOWER_IMG_PATH  = "assets/pic/landtower.png"
+WIND_TOWER_IMG_PATH  = "assets/pic/windtower.png"
 
 # --- 升級特效（LEVEL UP） ---
 LEVELUP_USE_IMAGE = True
@@ -288,7 +305,7 @@ PRICES = {
 NOTICES = []  # [{'text': str, 'ttl': int, 'color': (r,g,b), 'x': int|None, 'y': int|None, 'align': 'left'|'right'|'center'}]
 NOTICE_TTL = 90
 # 預設通知顯示位置與樣式（可改）
-NOTICE_X = 700
+NOTICE_X = 500
 NOTICE_Y = 620
 NOTICE_LINE_GAP = 22
 NOTICE_ALIGN_DEFAULT = 'left'  # 'left' | 'right' | 'center'
@@ -328,20 +345,126 @@ def get_evolve_cost(target_type):
     return PRICES.get('evolve', {}).get(target_type, 60)
 #箭塔設定
 TOWER_TYPES = {
-    'arrow': {  # 普通箭塔
-        0: {'atk': 1, 'range': 2, 'rof': 1},
-        1: {'atk': 2, 'range': 2, 'rof': 1},
-        2: {'atk': 2, 'range': 3, 'rof': 2},
+    'arrow': {  # 普通箭塔（最高 3 級）
+        0: {'atk': 1, 'range': 2, 'rof': 1.0},
+        1: {'atk': 2, 'range': 2, 'rof': 1.2},
+        2: {'atk': 2, 'range': 3, 'rof': 1.6},
+        3: {'atk': 3, 'range': 3, 'rof': 2.0},
     },
-    'rocket': {  # 火箭塔：高傷害＋範圍爆炸
+    'rocket': {  # 火箭塔：高傷害＋範圍爆炸（最高 3 級）
         0: {'atk': 3, 'range': 3, 'rof': 0.8},
         1: {'atk': 4, 'range': 3, 'rof': 1.0},
+        2: {'atk': 5, 'range': 3, 'rof': 1.2},
+        3: {'atk': 6, 'range': 4, 'rof': 1.4},
     },
-    'thunder': {  # 雷電塔：連鎖閃電攻擊多個目標
+    'thunder': {  # 雷電塔：連鎖閃電（最高 3 級）
         0: {'atk': 2, 'range': 4, 'rof': 2.5},
         1: {'atk': 3, 'range': 5, 'rof': 3.0},
+        2: {'atk': 4, 'range': 5, 'rof': 3.5},
+        3: {'atk': 5, 'range': 6, 'rof': 4.0},
     }
 }
+
+# ---- Optional: override tower attack from external config (game_config.py) ----
+def _apply_tower_overrides_from_cfg():
+    """
+    支援三種覆蓋方式（擇一或混用）：
+    1) 直接提供完整的 TOWER_TYPES 於 game_config.py
+    2) 只提供每塔各等級攻擊力：TOWER_ATK = {'arrow':[...], 'rocket':[...], 'thunder':[...]}
+    3) 只提供倍率：TOWER_ATK_MULT = {'arrow':1.2, 'rocket':0.9, ...}
+    """
+    global TOWER_TYPES
+    try:
+        # 1) 完整覆蓋
+        if hasattr(CFG, 'TOWER_TYPES') and isinstance(CFG.TOWER_TYPES, dict):
+            TOWER_TYPES = CFG.TOWER_TYPES
+            return
+        # 2) 局部修改 atk 數值
+        atk_cfg = getattr(CFG, 'TOWER_ATK', None)
+        if isinstance(atk_cfg, dict):
+            for ttype, atk_list in atk_cfg.items():
+                if ttype in TOWER_TYPES and isinstance(atk_list, (list, tuple)):
+                    for lv, val in enumerate(atk_list):
+                        if lv in TOWER_TYPES[ttype]:
+                            try:
+                                TOWER_TYPES[ttype][lv]['atk'] = int(val)
+                            except Exception:
+                                pass
+        # 3) 以倍率整體放大/縮小各塔各等級的 atk
+        mult_cfg = getattr(CFG, 'TOWER_ATK_MULT', None)
+        if isinstance(mult_cfg, dict):
+            for ttype, mul in mult_cfg.items():
+                if ttype in TOWER_TYPES:
+                    try:
+                        mul = float(mul)
+                    except Exception:
+                        continue
+                    for lv in TOWER_TYPES[ttype]:
+                        base = TOWER_TYPES[ttype][lv].get('atk', 1)
+                        TOWER_TYPES[ttype][lv]['atk'] = max(1, int(round(base * mul)))
+    except Exception:
+        # 靜默失敗，維持預設數值
+        pass
+
+# 套用外部設定（若 game_config.py 有提供）
+_apply_tower_overrides_from_cfg()
+# ==== Elemental effect helpers ====
+def _get_elem_cfg(elem, lvl):
+    # 讀 game_config.ELEMENT_EFFECTS；不存在則給預設
+    cfg = getattr(CFG, 'ELEMENT_EFFECTS', {}) if hasattr(CFG, 'ELEMENT_EFFECTS') else {}
+    if elem == 'fire':
+        base = {'type':'burn','duration':1.0,'scale_per_lv':0.01}
+    elif elem == 'water':
+        base = {'type':'slow','duration':1.0,'scale_per_lv':0.01}
+    elif elem == 'land':
+        base = {'type':'bleed','duration':0.5,'scale_per_lv':0.015}
+    elif elem == 'wind':
+        base = {'type':'knockback','base_knockback':1,'scale_per_lv':1}
+    else:
+        return None
+    merged = dict(base)
+    if elem in cfg and isinstance(cfg[elem], dict):
+        merged.update(cfg[elem])
+    # 持續時間依等級成長（秒）
+    if merged.get('type') in ('burn','slow','bleed'):
+        dur = merged.get('duration', 1.0)
+        scale = merged.get('scale_per_lv', 0.0)
+        merged['duration'] = float(dur) * (1.0 + scale * max(0, int(lvl)))
+    # 擊退格數
+    if merged.get('type') == 'knockback':
+        base_kb = int(merged.get('base_knockback', 1))
+        inc = int(merged.get('scale_per_lv', 1))
+        merged['grids'] = max(1, base_kb + inc * max(0, int(lvl)))
+    return merged
+
+def _apply_status_on_hit(target, elem_cfg, atk_val):
+    if not elem_cfg:
+        return
+    etype = elem_cfg.get('type')
+    eff = target.setdefault('effects', {})
+    if etype == 'burn':
+        frames = int(60 * elem_cfg.get('duration', 1.0))
+        eff['burn'] = {'ttl': frames, 'tick': 10, 'acc': 0, 'dmg': max(1, int(round(atk_val * 0.3)))}
+    elif etype == 'slow':
+        frames = int(60 * elem_cfg.get('duration', 1.0))
+        eff['slow'] = {'ttl': frames, 'ratio': 0.6}
+    elif etype == 'bleed':
+        frames = int(60 * elem_cfg.get('duration', 0.5))
+        eff['bleed'] = {'ttl': frames, 'tick': 10, 'acc': 0, 'dmg': max(1, int(round(atk_val * 0.25)))}
+    elif etype == 'knockback':
+        # 擊退在命中瞬間處理，這裡不存狀態
+        pass
+
+def _do_knockback(creep, grids):
+    # 依路徑往回推若干格（若沒有路徑，忽略）
+    route = creep.get('route') or []
+    wp = int(creep.get('wp', 1))
+    if not route:
+        return
+    target_wp = max(0, wp - 1 - int(grids))
+    tr, tc = route[target_wp]
+    creep['r'], creep['c'] = float(tr), float(tc)
+    creep['wp'] = target_wp + 1
 def find_ch_font():
     # On web, system fonts are unavailable; prefer bundled font
     web_font = os.path.join("assets", "font", "NotoSansCJK-Regular.otf")
@@ -485,12 +608,27 @@ try:
     if os.path.exists(PAUSE_IMG_PATH):
         _raw = pygame.image.load(PAUSE_IMG_PATH).convert_alpha()
         PAUSE_IMG = pygame.transform.smoothscale(_raw, (STATUS_ICON_SIZE, STATUS_ICON_SIZE))
+    # 分支塔圖
     if os.path.exists(ROCKET_TOWER_IMG_PATH):
         _raw = pygame.image.load(ROCKET_TOWER_IMG_PATH).convert_alpha()
         ROCKET_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
     if os.path.exists(THUNDER_TOWER_IMG_PATH):
         _raw = pygame.image.load(THUNDER_TOWER_IMG_PATH).convert_alpha()
         THUNDER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+
+    # 四元素圖示（用於依元素覆蓋顯示）
+    if os.path.exists(FIRE_TOWER_IMG_PATH):
+        _raw = pygame.image.load(FIRE_TOWER_IMG_PATH).convert_alpha()
+        FIRE_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    if os.path.exists(WATER_TOWER_IMG_PATH):
+        _raw = pygame.image.load(WATER_TOWER_IMG_PATH).convert_alpha()
+        WATER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    if os.path.exists(LAND_TOWER_IMG_PATH):
+        _raw = pygame.image.load(LAND_TOWER_IMG_PATH).convert_alpha()
+        LAND_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    if os.path.exists(WIND_TOWER_IMG_PATH):
+        _raw = pygame.image.load(WIND_TOWER_IMG_PATH).convert_alpha()
+        WIND_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
 
     LOAD_STEP = 5
     loading_tick("載入地圖與介面圖示…")
@@ -873,8 +1011,8 @@ def draw_help_screen():
     title = BIG.render("操作說明", True, (250, 245, 255))
     screen.blit(title, (W//2 - title.get_width()//2, 120))
     lines = [
-        "D抽卡  左鍵使用卡片建塔/升級,S 回收｜C 升級主堡",
-        "Space 開始/暫停｜N 下一波｜R 重置",
+        "D抽卡  左鍵使用卡片建塔/升級｜S 回收｜C 升級主堡",
+        "可抽到：普通塔(10)、元素卡(5)、升級卡(0)，升級卡可將任一塔升到最高 Lv3",
         "1/2/3 調整速度",
         "每波開始前：右上顯示開始/暫停，紅箭頭預告下一個 S 出口",
         "清空當波怪物後，才會顯示下一波預告",
@@ -930,6 +1068,20 @@ def draw_tower_icon(t):
     ttype = t.get('type', 'arrow')
     x, y = grid_to_px(r, c)
     cx, cy = x + CELL//2, y + CELL//2
+
+    # 若有元素，優先用對應的元素圖示覆蓋顯示
+    elem = t.get('element')
+    if elem:
+        elem_img = {
+            'fire':  FIRE_TOWER_IMG,
+            'water': WATER_TOWER_IMG,
+            'land':  LAND_TOWER_IMG,
+            'wind':  WIND_TOWER_IMG,
+        }.get(elem)
+        if elem_img:
+            rect = elem_img.get_rect(center=(cx, cy))
+            screen.blit(elem_img, rect)
+            return
 
     if ttype == 'rocket':
         if 'ROCKET_TOWER_IMG' in globals() and ROCKET_TOWER_IMG:
@@ -1175,8 +1327,12 @@ def tower_fire(t):
         'dmg': stat['atk'] * (1.5 if ttype == 'rocket' else 1),
         'target_id': target['id'],
         'ttl': 120, 'trail': [(sx, sy)],
-        'aoe': (ttype == 'rocket')
+        'aoe': (ttype == 'rocket'),
+        'element': t.get('element'),
+        'tlevel': t.get('level', 0)
     })
+    if t.get('element') == 'water':
+        _apply_status_on_hit(m, _get_elem_cfg('water', t.get('level',0)), stat['atk'])
 
 def spawn_logic():
     global spawn_counter, wave_incoming, creeps, ids, next_spawn
@@ -1198,7 +1354,8 @@ def spawn_logic():
                 'id': ids['creep'], 'type': kind,
                 'r': float(sr), 'c': float(sc), 'wp': 1, 'route': route,
                 'hp': int(base_hp), 'alive': True,
-                'speed': data['speed']*(1+wave*0.03), 'reward': data['reward']
+                'speed': data['speed']*(1+wave*0.03), 'reward': data['reward'],
+                'effects': {}
             })
             ids['creep'] += 1
     spawn_counter += 1
@@ -1213,6 +1370,42 @@ def move_creeps():
     for m in creeps:
         if not m['alive']:
             continue
+        # 狀態效果處理（DOT、緩速）
+        eff = m.get('effects') or {}
+        # DOT：burn / bleed 每 10 幀扣一次血
+        for key in ('burn','bleed'):
+            e = eff.get(key)
+            if e:
+                e['ttl'] -= 1
+                e['acc'] = e.get('acc', 0) + 1
+                if e['acc'] >= e.get('tick', 10):
+                    e['acc'] = 0
+                    m['hp'] -= max(1, int(e.get('dmg', 1)))
+                    if m['hp'] <= 0:
+                        m['alive'] = False
+                        cx, cy = center_px(m['r'], int(m['c']))
+                        corpses.append({'x': cx, 'y': cy, 'ttl': 24})
+                        reward_amt = reward_for(m['type'])
+                        gains.append({'x': cx, 'y': cy - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+                        global gold
+                        gold += reward_amt
+                        sfx(SFX_DEATH); sfx(SFX_COIN)
+                        eff[key] = None
+                        break
+                if e['ttl'] <= 0:
+                    eff[key] = None
+        # 移除過期 None
+        for k in list(eff.keys()):
+            if not eff[k]:
+                eff.pop(k, None)
+        # 緩速：在本幀速度上套用
+        slow_ratio = 1.0
+        if 'slow' in eff and eff['slow'] and eff['slow']['ttl'] > 0:
+            eff['slow']['ttl'] -= 1
+            slow_ratio = min(slow_ratio, eff['slow'].get('ratio', 0.6))
+            if eff['slow']['ttl'] <= 0:
+                eff.pop('slow', None)
+        #--
         route = m.get('route')
         wp = m.get('wp', 1)
 
@@ -1232,7 +1425,7 @@ def move_creeps():
         tr, tc = route[wp]
         dr, dc = tr - m['r'], tc - m['c']
         dist = math.hypot(dr, dc)
-        step = m['speed']  # 單位：格/幀
+        step = m['speed'] * slow_ratio  # 單位：格/幀
 
         if dist <= step:
             # 到達當前 waypoint
@@ -1283,6 +1476,34 @@ def bullets_step():
                     gold += reward_amt
                     sfx(SFX_DEATH); sfx(SFX_COIN)
                 continue
+            # 元素效果（單體）
+            if b.get('element') in ('water','land','wind','fire'):
+                ecfg = _get_elem_cfg(b['element'], b.get('tlevel',0))
+                if ecfg:
+                    if ecfg.get('type') == 'knockback':
+                        _do_knockback(target, ecfg.get('grids',1))
+                    else:
+                        _apply_status_on_hit(target, ecfg, b['dmg'])
+            if b.get('aoe'):
+                ax, ay = tx, ty
+                radius = 60
+                for m in list(creeps):
+                    if (not m['alive']) or m['id'] == target['id']:
+                        continue
+                    mx, my = center_px(m['r'], int(m['c']))
+                    if math.hypot(mx-ax, my-ay) <= radius:
+                        m['hp'] -= max(1, int(round(b['dmg'] * 0.6)))
+                        hits.append({'x': mx, 'y': my, 'ttl': 8})
+                        # 火元素：爆炸附帶灼傷
+                        ecfg = _get_elem_cfg('fire', b.get('tlevel',0))
+                        _apply_status_on_hit(m, ecfg, b['dmg'])
+                        if m['hp'] <= 0:
+                            m['alive'] = False
+                            corpses.append({'x': mx, 'y': my, 'ttl': 24})
+                            reward_amt = reward_for(m['type'])
+                            gains.append({'x': mx, 'y': my - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+                            gold += reward_amt
+                            sfx(SFX_DEATH); sfx(SFX_COIN)
         if 0 <= b['x'] <= W and 0 <= b['y'] <= H and b['ttl']>0: alive.append(b)
     bullets[:] = alive
 
@@ -1432,6 +1653,26 @@ def use_card_on_grid(r, c):
         selected_card = None
         return
 
+    # ---- 升級卡：將已有塔等級 +1（最高 3 級）----
+    if card == "upgrade":
+        for t in towers:
+            if t['r'] == r and t['c'] == c:
+                max_lv = 3
+                if t.get('level', 0) >= max_lv:
+                    add_notice("此塔已是最高等級 (Lv3)", (255,180,120))
+                    return
+                # 消耗卡片（不扣金幣）
+                hand.pop(card_index)
+                t['level'] = t.get('level', 0) + 1
+                cx, cy = center_px(r, c)
+                upgrades.append({'x': cx, 'y': cy - 8, 'ttl': LEVELUP_TTL})
+                sfx(SFX_LEVELUP)
+                add_notice(f"升級成功：Lv{t['level']}", (160,235,170))
+                selected_card = None
+                return
+        add_notice("此格沒有防禦塔可升級", (255,120,120))
+        return
+
     # 元素卡：升級已有塔（把該格塔進化成元素塔）
     # (邏輯：找到該格塔→花 5 元→轉型與/或提升能力)
     for t in towers:
@@ -1452,6 +1693,7 @@ def use_card_on_grid(r, c):
             new_type = mapping.get(card, "arrow")
             gold -= spend
             t['type'] = new_type
+            t['element'] = card  # 'fire'/'water'/'land'/'wind'
             # 可以視需要重置 level 或保留：這裡保留 level
             cx, cy = center_px(r, c)
             upgrades.append({'x': cx, 'y': cy - 8, 'ttl': LEVELUP_TTL})

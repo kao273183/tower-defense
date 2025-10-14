@@ -1,4 +1,7 @@
 # ==== 視窗 / 地圖 ====
+from main import LAND
+
+
 W = 960
 H = 640
 CELL = 40
@@ -40,23 +43,64 @@ PRICES = {
   }
 }
 
-# ===== 塔數值（可獨立調平衡）====
+# ===== 塔數值（可獨立調平衡）====# game_config.py
 TOWER_TYPES = {
     'arrow': {
-        0: {'atk': 1, 'range': 2, 'rof': 1},
-        1: {'atk': 2, 'range': 2, 'rof': 1},
-        2: {'atk': 2, 'range': 3, 'rof': 2},
+        0: {'atk': 1, 'range': 2, 'rof': 1.0},
+        1: {'atk': 2, 'range': 2, 'rof': 1.2},
+        2: {'atk': 3, 'range': 3, 'rof': 1.6},
+        3: {'atk': 4, 'range': 3, 'rof': 2.0},
     },
     'rocket': {
         0: {'atk': 3, 'range': 3, 'rof': 0.8},
         1: {'atk': 4, 'range': 3, 'rof': 1.0},
+        2: {'atk': 5, 'range': 3, 'rof': 1.2},
+        3: {'atk': 6, 'range': 4, 'rof': 1.4},
     },
     'thunder': {
-        0: {'atk': 2, 'range': 4, 'rof': 2.5},
-        1: {'atk': 3, 'range': 5, 'rof': 3.0},
-    }
+        0: {'atk': 3, 'range': 4, 'rof': 2.5},
+        1: {'atk': 4, 'range': 5, 'rof': 3.0},
+        2: {'atk': 5, 'range': 5, 'rof': 3.5},
+        3: {'atk': 6, 'range': 6, 'rof': 4.0},
+    },
 }
 
+# ==== 元素塔特效 ====
+ELEMENT_EFFECTS = {
+    'fire': {
+        'type': 'burn',
+        'description': '造成爆炸傷害並使附近怪物灼傷',
+        'duration': 1.0,      # 持續 1 秒
+        'scale_per_lv': 0.01  # 每級增加 1% 秒數
+    },
+    'water': {
+        'type': 'slow',
+        'description': '減緩敵人移動速度',
+        'duration': 1.0,      # 持續 1 秒
+        'scale_per_lv': 0.01  # 每級增加 1% 秒數
+    },
+    'land': {
+        'type': 'bleed',
+        'description': '造成流血持續傷害',
+        'duration': 0.5,      # 持續 0.5 秒
+        'scale_per_lv': 0.015 # 每級增加 1.5% 秒數
+    },
+    'wind': {
+        'type': 'knockback',
+        'description': '擊退敵人一格',
+        'base_knockback': 1,  # 初始擊退格數
+        'scale_per_lv': 1     # 每級增加 1 格擊退距離
+    }
+}
+TOWER_ATK = {
+    'arrow':  [2, 3, 4, 5],   # Lv0~Lv3
+    'rocket': [4, 6, 8, 10],
+    'thunder':[3, 4, 5, 7],
+}
+TOWER_ATK_MULT = {
+    'arrow': 1.2,    # 全等級 +20%
+    'rocket': 0.9,   # 全等級 -10%
+}
 # ==== 怪物數值（可獨立調平衡）====
 CREEP = {
     'grunt': {'hp': 6,  'speed': .020, 'reward': 1, 'color': (244,162,75)},
@@ -100,8 +144,10 @@ TOWER_IMG_PATHS = {
     2: "assets/pic/tower_lv3.png",
     3: "assets/pic/tower_lv3.png",
 }
-ROCKET_TOWER_IMG_PATH  = "assets/pic/rocket_tower.png"
-THUNDER_TOWER_IMG_PATH = "assets/pic/thunder_tower.png"
+ROCKET_TOWER_IMG_PATH  = "assets/pic/firetower.png"
+WATER_TOWER_IMG_PATH = "assets/pic/watertower.png"
+LAND_TOWER_IMG_PATH  = "assets/pic/landtower.png"
+WIND_TOWER_IMG_PATH  = "assets/pic/windtower.png"
 
 # 怪物圖片
 GRUNT_USE_IMAGE  = True
