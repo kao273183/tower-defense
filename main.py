@@ -17,7 +17,7 @@ V0.0.52 新增：多了幾個怪物
 V0.0.53 修正:怪物血量、攻擊力、速度調整
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.54-Beta"
+TITLENAME = "塔路之戰-V0.0.55-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -818,6 +818,7 @@ try:
     SFX_COIN    = _load_sfx('coin.wav',    0.55)
     SFX_LEVELUP = _load_sfx('levelup.wav', 0.6)
     SFX_CLICK   = _load_sfx('click.wav',   0.45)
+    SFX_DRAW    = _load_sfx('draw.wav',    0.55)
 
     LOAD_STEP = 7
     loading_tick("載入音效…")
@@ -1935,6 +1936,11 @@ def draw_card():
 
     # 播放抽卡音效
     sfx(SFX_CLICK)
+    try:
+        sfx(SFX_DRAW)
+    except Exception:
+        pass
+    effects.append({'type': 'flip', 'timer': 20, 'total': 20, 'img_from': BG_CARD_IMG, 'img_to_name': card_type, 'pos': (W//2, H//2)})
 
     # === 金幣卡立即生效 ===
     money_gain = 0
@@ -1989,6 +1995,29 @@ def draw_effects():
             pygame.draw.circle(s, (*color, alpha), pos, radius)
             screen.blit(s, (0, 0))
             fx['timer'] = fx.get('timer', 0) - 1
+            if fx['timer'] <= 0:
+                remove_fx.append(fx)
+        elif fx.get('type') == 'flip':
+            total = fx.get('total', 20)
+            timer = fx.get('timer', total)
+            progress = 1.0 - max(0.0, min(1.0, float(timer) / float(total)))
+            import math as _m
+            scale_x = max(0.05, abs(_m.cos(progress * _m.pi)))
+            pos = fx.get('pos', (W//2, H//2))
+            img = fx.get('img_from') if progress < 0.5 else get_card_scaled(fx.get('img_to_name', 'basic'))
+            slot_w, slot_h = CARD_SLOT_SIZE
+            if img is None:
+                w = max(1, int(slot_w * scale_x)); h = slot_h
+                rect = pygame.Rect(0, 0, w, h); rect.center = pos
+                pygame.draw.rect(screen, (31, 42, 68), rect, border_radius=10)
+                pygame.draw.rect(screen, (50, 120, 255), rect, 2, border_radius=10)
+            else:
+                base = pygame.transform.smoothscale(img, (slot_w, slot_h)) if img.get_size() != (slot_w, slot_h) else img
+                w = max(1, int(slot_w * scale_x)); h = slot_h
+                simg = pygame.transform.smoothscale(base, (w, h))
+                rect = simg.get_rect(center=pos)
+                screen.blit(simg, rect)
+            fx['timer'] = timer - 1
             if fx['timer'] <= 0:
                 remove_fx.append(fx)
     for fx in remove_fx:
