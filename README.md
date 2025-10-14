@@ -1,4 +1,4 @@
-# 《塔路之戰》— Pygame 版 v0.2
+# 《塔路之戰》— Pygame 版 v0.0.4-Beta
 
 ## 安裝
 ```bash
