@@ -113,6 +113,9 @@ CARD_IMAGES = {
     "upgrade": "assets/pic/UpgradeCard.png",   # 升級卡（請將圖放在此路徑）
     "bg":      "assets/pic/BgCard.png",        # 卡底背景
 }
+
+# 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
+CARD_SKIP_SLOT_BG = {"upgrade"}
 CARD_COSTS = {
     "basic":   CARD_COST_BUILD,  # 10
     "fire":    CARD_COST_DRAW,   # 5
@@ -933,16 +936,26 @@ def draw_hand_bar():
         rect = pygame.Rect(draw_x, y, slot_w, slot_h)
         HAND_UI_RECTS.append((rect, i))
 
-        # 卡底
-        if bg_img:
-            screen.blit(bg_img, rect)
-        else:
+        # 卡底：有些卡片圖本身含有外框，避免再疊 BgCard 造成「多重外框」
+        if name in CARD_SKIP_SLOT_BG:
+            # 略過 BgCard，只畫一個細緣讓位置一致
             pygame.draw.rect(screen, (31, 42, 68), rect, border_radius=10)
-            pygame.draw.rect(screen, (90, 120, 200), rect, 2, border_radius=10)
+            pygame.draw.rect(screen, (50, 120, 255), rect, 2, border_radius=10)
+        else:
+            if bg_img:
+                screen.blit(bg_img, rect)
+            else:
+                pygame.draw.rect(screen, (31, 42, 68), rect, border_radius=10)
+                pygame.draw.rect(screen, (90, 120, 200), rect, 2, border_radius=10)
 
         # 卡面圖
         img = get_card_scaled(name)
         if img:
+            if name in CARD_SKIP_SLOT_BG:
+                # 再縮一點，避免內建外框與槽框重疊
+                iw, ih = img.get_width(), img.get_height()
+                pad_scale = 0.92
+                img = pygame.transform.smoothscale(img, (int(iw*pad_scale), int(ih*pad_scale)))
             ir = img.get_rect(center=(rect.centerx, rect.centery))
             screen.blit(img, ir)
         else:
