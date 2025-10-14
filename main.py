@@ -17,7 +17,7 @@ try:
 except Exception:
     pass
 towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
-W, H = 960, 640
+W, H = 1280, 720
 CELL = 40
 # --- 地圖格數與畫面偏移 ---
 COLS, ROWS = 15, 9
@@ -48,10 +48,11 @@ current_spawn = None   # 本波實際出怪口
 next_spawn = None      # 下一波預告出怪口（按 N 前就會看見）
 
 # --- 遊戲狀態（主選單 / 遊戲中 / 說明） ---
-GAME_MENU   = 'menu'
-GAME_PLAY   = 'play'
-GAME_HELP   = 'help'
-game_state  = GAME_MENU
+GAME_MENU    = 'menu'
+GAME_PLAY    = 'play'
+GAME_HELP    = 'help'
+GAME_LOADING = 'loading'
+game_state   = GAME_LOADING
 
 # 主選單按鈕樣式
 BTN_W, BTN_H = 260, 56
@@ -97,6 +98,67 @@ def load_map_from_file():
     SPAWNS = spawns if spawns else [(ROWS-1, COLS//2)]
     CASTLE_ROW, CASTLE_COL = castle_r, castle_c
     return True
+#卡牌設定
+# === 卡片系統 ===
+CARD_COST_DRAW = 5       # 抽卡花費
+CARD_COST_BUILD = 10     # Basic_Tower 建置花費（與 BUILD_COST 保持一致或直接以此為主）
+CARD_POOL = ["basic", "fire", "wind", "water", "land"]  # 包含基本卡
+# 卡面圖與費用（使用你的素材）
+CARD_IMAGES = {
+    "basic": "assets/pic/Basic_Tower.png",
+    "fire":  "assets/pic/fireCard.png",
+    "wind":  "assets/pic/WindCard.png",
+    "water": "assets/pic/waterCard.png",
+    "land":  "assets/pic/landCard.png",
+    "bg":    "assets/pic/BgCard.png",   # 卡底背景
+}
+CARD_COSTS = {
+    "basic": CARD_COST_BUILD,  # 10
+    "fire":  CARD_COST_DRAW,   # 5
+    "wind":  CARD_COST_DRAW,
+    "water": CARD_COST_DRAW,
+    "land":  CARD_COST_DRAW,
+}
+# === 卡片圖快取與縮放 ===
+CARD_SLOT_SIZE = (128, 128)   # 與 draw_hand_bar 一致
+CARD_SURFACES = {}          # 原始圖
+CARD_SURF_SCALED = {}       # 縮放後圖 (依 slot 尺寸)
+BG_CARD_IMG = None          # 預先縮好的卡底
+
+def _init_card_assets():
+    """一次性載入卡片圖並縮放到卡槽尺寸，避免每幀重複 load/scale。"""
+    global CARD_SURFACES, CARD_SURF_SCALED, BG_CARD_IMG
+    CARD_SURFACES = {}
+    CARD_SURF_SCALED = {}
+    # 載入所有卡圖
+    for k, p in CARD_IMAGES.items():
+        if p and os.path.exists(p):
+            try:
+                CARD_SURFACES[k] = pygame.image.load(p).convert_alpha()
+            except Exception:
+                pass
+    # 預縮卡底
+    if 'bg' in CARD_SURFACES:
+        BG_CARD_IMG = pygame.transform.smoothscale(CARD_SURFACES['bg'], CARD_SLOT_SIZE)
+
+def get_card_scaled(name):
+    """取得縮放後的卡面圖（快取）。"""
+    key = (name, CARD_SLOT_SIZE)
+    if key in CARD_SURF_SCALED:
+        return CARD_SURF_SCALED[key]
+    src = CARD_SURFACES.get(name)
+    if not src:
+        return None
+    slot_w, slot_h = CARD_SLOT_SIZE
+    iw, ih = src.get_width(), src.get_height()
+    scale = min((slot_w - 12) / max(1, iw), (slot_h - 18) / max(1, ih))
+    img = pygame.transform.smoothscale(src, (int(iw * scale), int(ih * scale)))
+    CARD_SURF_SCALED[key] = img
+    return img
+# 玩家卡資料
+hand = []                # 目前手牌（最多可先不限制或自行加上上限）
+selected_card = None     # 被選取的手牌索引或名稱
+HAND_UI_RECTS = []  # 每幀重建：[(rect, index)]
 #主堡設定
 CASTLE = {
     'hp': 50,      # 當前血量
@@ -226,11 +288,16 @@ PRICES = {
 NOTICES = []  # [{'text': str, 'ttl': int, 'color': (r,g,b), 'x': int|None, 'y': int|None, 'align': 'left'|'right'|'center'}]
 NOTICE_TTL = 90
 # 預設通知顯示位置與樣式（可改）
-NOTICE_X = 16
-NOTICE_Y = 500
+NOTICE_X = 700
+NOTICE_Y = 620
 NOTICE_LINE_GAP = 22
 NOTICE_ALIGN_DEFAULT = 'left'  # 'left' | 'right' | 'center'
-
+#基本開局
+# 開局給三張基本塔卡
+def init_starting_hand():
+    global hand, selected_card
+    hand = ["basic", "basic", "basic"]  # 對應 Basic_Tower.png
+    selected_card = None
 def add_notice(text, color=(255, 120, 120), ttl=NOTICE_TTL, x=None, y=None, align=None):
     NOTICES.append({
         'text': text,
@@ -240,6 +307,8 @@ def add_notice(text, color=(255, 120, 120), ttl=NOTICE_TTL, x=None, y=None, alig
         'y': y,
         'align': (align or NOTICE_ALIGN_DEFAULT)
     })
+    if len(NOTICES) > 6:
+        del NOTICES[:-6]
 #
 # 成本查詢輔助
 def get_build_cost(ttype='arrow'):
@@ -298,8 +367,53 @@ if font_path:
 else:
     FONT = pygame.font.SysFont("arial", 18); BIG = pygame.font.SysFont("arial", 28, True)
 
+
+# Define SMALL font for use in draw_hand_bar()
+SMALL = pygame.font.Font(font_path, 14) if font_path else pygame.font.SysFont("arial", 14)
+
+# 將手牌列往上抬高一些，避免被底部遮擋
+HAND_BAR_MARGIN_BOTTOM = 36  # 將手牌列往上抬高一些，避免被底部遮擋
+
 screen = pygame.display.set_mode((W, H))
-pygame.display.set_caption("塔路之戰-V0.0.3)")
+pygame.display.set_caption("塔路之戰-V0.0.4")
+
+# === Loading Screen Helpers ===
+LOADING = True
+LOAD_STEP = 0
+LOAD_TOTAL = 8  # 大致分 8 個階段顯示進度
+
+def draw_loading(message, step=None, total=None):
+    # 清背景
+    screen.fill((16, 20, 35))
+    # 背景圖若已存在可先鋪上
+    try:
+        if 'BG_IMG' in globals() and BG_IMG:
+            screen.blit(BG_IMG, (0, 0))
+    except Exception:
+        pass
+    # 半透明罩
+    dim = pygame.Surface((W, H), pygame.SRCALPHA)
+    dim.fill((0, 0, 0, 140))
+    screen.blit(dim, (0, 0))
+    # 文字
+    title = BIG.render("載入中…", True, (235, 242, 255))
+    screen.blit(title, (W//2 - title.get_width()//2, H//2 - 60))
+    msg = FONT.render(str(message), True, (210, 220, 235))
+    screen.blit(msg, (W//2 - msg.get_width()//2, H//2 - 24))
+    # 進度條
+    if step is not None and total:
+        bw, bh = 420, 16
+        bx = W//2 - bw//2
+        by = H//2 + 8
+        pygame.draw.rect(screen, (40, 55, 96), (bx, by, bw, bh), border_radius=8)
+        ratio = max(0.0, min(1.0, float(step)/float(total)))
+        pygame.draw.rect(screen, (90, 180, 255), (bx, by, int(bw*ratio), bh), border_radius=8)
+    pygame.display.flip()
+
+def loading_tick(message):
+    global LOAD_STEP
+    draw_loading(message, LOAD_STEP, LOAD_TOTAL)
+    # 不阻塞主線，只是畫面更新
 
 # 嘗試載入各怪物圖片與特效（失敗則退回程式繪圖）
 MONSTER_IMG = None   # grunt
@@ -318,6 +432,8 @@ WALL_IMG_PATH = "assets/pic/wall.png"
 CASTLE_IMG_SIZE = 48
 WALL_IMG_SIZE = 40
 try:
+    LOAD_STEP = 0
+    loading_tick("初始化資源…")
     if GRUNT_USE_IMAGE and os.path.exists(GRUNT_IMG_PATH):
         _raw = pygame.image.load(GRUNT_IMG_PATH).convert_alpha()
         MONSTER_IMG = pygame.transform.smoothscale(_raw, (GRUNT_IMG_SIZE, GRUNT_IMG_SIZE))
@@ -330,6 +446,8 @@ try:
     if BOSS_USE_IMAGE and os.path.exists(BOSS_IMG_PATH):
         _raw = pygame.image.load(BOSS_IMG_PATH).convert_alpha()
         BOSS_IMG = pygame.transform.smoothscale(_raw, (BOSS_IMG_SIZE, BOSS_IMG_SIZE))
+    LOAD_STEP = 1
+    loading_tick("載入怪物素材…")
     if HIT_USE_IMAGE and os.path.exists(HIT_IMG_PATH):
         BLAST_IMG = pygame.image.load(HIT_IMG_PATH).convert_alpha()
     if DEATH_USE_IMAGE and os.path.exists(DEATH_IMG_PATH):
@@ -338,14 +456,20 @@ try:
     if GAIN_USE_IMAGE and os.path.exists(GAIN_IMG_PATH):
         _raw = pygame.image.load(GAIN_IMG_PATH).convert_alpha()
         COIN_IMG = pygame.transform.smoothscale(_raw, (GAIN_IMG_SIZE, GAIN_IMG_SIZE))
+    LOAD_STEP = 2
+    loading_tick("載入特效素材…")
     if TOWER_USE_IMAGES:
         for lv, p in TOWER_IMG_PATHS.items():
             if p and os.path.exists(p):
                 _raw = pygame.image.load(p).convert_alpha()
                 TOWER_IMGS[lv] = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    LOAD_STEP = 3
+    loading_tick("載入防禦塔素材…")
     if LEVELUP_USE_IMAGE and os.path.exists(LEVELUP_IMG_PATH):
         _raw = pygame.image.load(LEVELUP_IMG_PATH).convert_alpha()
         LEVELUP_IMG = pygame.transform.smoothscale(_raw, (LEVELUP_IMG_SIZE, LEVELUP_IMG_SIZE))
+    LOAD_STEP = 4
+    loading_tick("載入升級素材…")
     if os.path.exists(CASTLE_IMG_PATH):
         _raw = pygame.image.load(CASTLE_IMG_PATH).convert_alpha()
         CASTLE_IMG = pygame.transform.smoothscale(_raw, (CASTLE_IMG_SIZE, CASTLE_IMG_SIZE))
@@ -368,6 +492,9 @@ try:
         _raw = pygame.image.load(THUNDER_TOWER_IMG_PATH).convert_alpha()
         THUNDER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
 
+    LOAD_STEP = 5
+    loading_tick("載入地圖與介面圖示…")
+
     # 背景 / Logo
     if os.path.exists(BG_IMG_PATH):
         _raw = pygame.image.load(BG_IMG_PATH).convert()
@@ -381,6 +508,9 @@ try:
             LOGO_IMG = pygame.transform.smoothscale(_raw, (int(w*scale), int(h*scale)))
         else:
             LOGO_IMG = _raw
+
+    LOAD_STEP = 6
+    loading_tick("載入背景與標誌…")
 
     # 音效載入（安全載入）
     def _load_sfx(name, vol=SFX_VOL):
@@ -397,6 +527,9 @@ try:
     SFX_LEVELUP = _load_sfx('levelup.wav', 0.6)
     SFX_CLICK   = _load_sfx('click.wav',   0.45)
 
+    LOAD_STEP = 7
+    loading_tick("載入音效…")
+
     # BGM
     if os.path.exists(BGM_PATH) and not IS_WEB:  # web 端可改為點擊開始後再播放，避免自動播放限制
         try:
@@ -407,11 +540,21 @@ try:
             pass
 except Exception:
     pass
-
+_init_card_assets()
+LOAD_STEP = 8
+draw_loading("完成！", LOAD_STEP, LOAD_TOTAL)
+LOADING = False
+game_state = GAME_MENU
 
 BG=(11,16,32); PANEL=(27,34,56); TEXT=(230,237,243); GRID=(31,42,68)
 ROAD=(180,127,37,140); LAND=(17,168,125,120); BLOCK=(40,48,73,200)
 CYAN=(34,178,234); WHITE=(226,232,240)
+
+# === Click performance tuning ===
+ENABLE_CLICK_SFX = False   # 關閉滑鼠點擊音效避免卡頓（可改 True 重新開啟）
+CLICK_DEBOUNCE_MS = 80     # 在此時間內的連續點擊將被忽略
+_last_click_ts = 0
+
 
 
 
@@ -420,7 +563,12 @@ clock = pygame.time.Clock()
 # --- tiny helpers ---
 def sfx(sound):
     try:
-        if sound: sound.play()
+        if not sound:
+            return
+        # 避免點擊音造成卡頓：可用 ENABLE_CLICK_SFX 控制
+        if (sound is SFX_CLICK) and (not ENABLE_CLICK_SFX):
+            return
+        sound.play()
     except Exception:
         pass
 
@@ -526,12 +674,12 @@ def draw_panel():
     pygame.draw.rect(screen, PANEL, (0,0,W,TOP))
     txt = FONT.render(f"$ {gold}    Wave {wave}{' (spawning)' if wave_incoming else ''}    Speed x{speed}", True, TEXT)
     screen.blit(txt, (16, 10))
-    tips = FONT.render("B建塔  U升級  S回收 C 升級主堡 ｜ Space開始/暫停  N下一波  R重置  1/2/3 速度", True, TEXT)
+    tips = FONT.render("D抽卡｜左鍵：使用卡片建塔或升級 S回收｜Space暫停/開始｜N下一波｜R重置｜1/2/3速度", True, TEXT)
     screen.blit(tips, (16, TOP-28))
     if not wave_incoming and next_spawn:
         nr, nc = next_spawn
         info = FONT.render(f"＊＊下一波出口：S 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
-        screen.blit(info, (16, 450))
+        screen.blit(info, (16, 620))
 
     # 右上角：開始/暫停圖示
     icon = (PLAY_IMG if running else PAUSE_IMG)
@@ -546,15 +694,21 @@ def draw_panel():
         screen.blit(s, (W - STATUS_ICON_MARGIN - s.get_width(), (TOP - s.get_height())//2))
 
     # 價格提示（放在面板右下角）
-    price_hint = FONT.render(f"建塔${PRICES['build']['arrow']}｜升級(箭) ${'/'.join(map(str,PRICES['upgrade']['arrow']))}", True, (200,210,230))
-    screen.blit(price_hint, (16, 600))
+    #price_hint = FONT.render(f"建塔${PRICES['build']['arrow']}｜升級(箭) ${'/'.join(map(str,PRICES['upgrade']['arrow']))}", True, (200,210,230))
+    #screen.blit(price_hint, (16, 600))
 
     # 浮動通知（可自訂座標與對齊；未指定則用全域預設）
     alive = []
     cursor_y = NOTICE_Y
     for n in NOTICES:
+        # 漸隱顯示：依剩餘存活時間調整 alpha
+        life_ratio = max(0.0, min(1.0, n['ttl'] / float(NOTICE_TTL)))
         col = n['color']
         txt = FONT.render(n['text'], True, col)
+        try:
+            txt.set_alpha(int(255 * life_ratio))
+        except Exception:
+            pass
         draw_x = n['x'] if n['x'] is not None else NOTICE_X
         draw_y = n['y'] if n['y'] is not None else cursor_y
         align = (n.get('align') or NOTICE_ALIGN_DEFAULT)
@@ -565,7 +719,6 @@ def draw_panel():
         else:
             pos = (draw_x, draw_y)
         screen.blit(txt, pos)
-        # 下一行（僅當此通知未指定固定 y 時才遞增）
         if n['y'] is None:
             cursor_y += NOTICE_LINE_GAP
         n['ttl'] -= 1
@@ -582,6 +735,94 @@ def draw_panel():
     hp_ratio = CASTLE['hp'] / CASTLE['max_hp']
     pygame.draw.rect(screen, (60,60,60), (bar_x, bar_y, bar_w, bar_h))
     pygame.draw.rect(screen, (180,60,60), (bar_x, bar_y, int(bar_w * hp_ratio), bar_h))
+#選取卡片
+def draw_hand_bar():
+    global HAND_UI_RECTS
+    HAND_UI_RECTS = []
+
+    # 底條與提示（根據卡片尺寸自動計算高度，讓卡片完整包含在框內）
+    slot_w, slot_h = CARD_SLOT_SIZE
+    gap = 10
+    bar_h = slot_h + 24  # 上下各留 12px 內距
+    bar_y = H - (bar_h + HAND_BAR_MARGIN_BOTTOM)
+
+    # 藍色光框底（比卡片高，確保卡片完全在框內）
+    glow_rect = pygame.Rect(16, bar_y, W - 32, bar_h)
+    pygame.draw.rect(screen, (50, 120, 255), glow_rect, 2, border_radius=12)
+
+    # 提示文字
+    tip = f"D 抽卡(-${CARD_COST_DRAW})｜左鍵：地圖出牌建塔/升級"
+    if selected_card is not None and 0 <= selected_card < len(hand):
+        tip += f"｜已選：{hand[selected_card]}"
+    hint = FONT.render(tip, True, (220, 230, 240))
+    screen.blit(hint, (W // 2 - hint.get_width() // 2, bar_y - 22))  # 置中提示文字
+    # 新增：含抽卡堆，多一張
+    hand_count = min(len(hand), 8)
+    total_w = (hand_count + 1) * slot_w + (hand_count) * gap  # 多一張抽卡堆
+    start_x = (W - total_w) // 2
+    y = bar_y + (bar_h - slot_h) // 2
+
+    bg_img = BG_CARD_IMG
+
+    # 先畫最左的「抽卡堆」圖示
+    draw_x = start_x
+    deck_rect = pygame.Rect(draw_x, y, slot_w, slot_h)
+    # 畫卡底或藍色光框
+    if bg_img:
+        screen.blit(bg_img, deck_rect)
+    else:
+        pygame.draw.rect(screen, (31, 42, 68), deck_rect, border_radius=10)
+        pygame.draw.rect(screen, (50, 120, 255), deck_rect, 4, border_radius=10)
+    # 在卡片中央畫一個背面圖/符號
+    if bg_img:
+        # 若有 bg 圖已繪製，疊加一個簡單圖樣
+        # 可在此加裝飾
+        pass
+    else:
+        # 畫一個藍色光框
+        pygame.draw.rect(screen, (50, 120, 255), deck_rect, 4, border_radius=10)
+    # 上方加文字
+    deck_label = SMALL.render("抽卡區", True, (180, 210, 255))
+    deck_label_x = deck_rect.centerx - deck_label.get_width() // 2
+    deck_label_y = deck_rect.top - deck_label.get_height() + 6
+    screen.blit(deck_label, (deck_label_x, deck_label_y))
+    # deck_rect 不加入 HAND_UI_RECTS，避免被點選
+
+    draw_x += slot_w + gap
+
+    # 畫手牌
+    for i, name in enumerate(hand[:8]):
+        rect = pygame.Rect(draw_x, y, slot_w, slot_h)
+        HAND_UI_RECTS.append((rect, i))
+
+        # 卡底
+        if bg_img:
+            screen.blit(bg_img, rect)
+        else:
+            pygame.draw.rect(screen, (31, 42, 68), rect, border_radius=10)
+            pygame.draw.rect(screen, (90, 120, 200), rect, 2, border_radius=10)
+
+        # 卡面圖
+        img = get_card_scaled(name)
+        if img:
+            ir = img.get_rect(center=(rect.centerx, rect.centery))
+            screen.blit(img, ir)
+        else:
+            label = FONT.render(name[:6], True, (235, 242, 255))
+            screen.blit(label, (rect.x + 6, rect.y + 6))
+
+        # # 費用文字
+        # cost = CARD_COSTS.get(name)
+        # if cost is not None:
+        #     cost_txt = SMALL.render(f"${cost}", True, (255, 236, 140))
+        #     screen.blit(cost_txt, (rect.centerx - cost_txt.get_width() // 2,
+        #                            rect.bottom - cost_txt.get_height() - 4))
+
+        # 選取高亮框
+        if selected_card == i:
+            pygame.draw.rect(screen, (255, 240, 160), rect, 4, border_radius=10)
+
+        draw_x += slot_w + gap
 
 # =========================
 # 主選單繪製
@@ -632,7 +873,7 @@ def draw_help_screen():
     title = BIG.render("操作說明", True, (250, 245, 255))
     screen.blit(title, (W//2 - title.get_width()//2, 120))
     lines = [
-        "B 建塔｜U 升級｜S 回收｜C 升級主堡",
+        "D抽卡  左鍵使用卡片建塔/升級,S 回收｜C 升級主堡",
         "Space 開始/暫停｜N 下一波｜R 重置",
         "1/2/3 調整速度",
         "每波開始前：右上顯示開始/暫停，紅箭頭預告下一個 S 出口",
@@ -1132,12 +1373,95 @@ def reset_game():
     globals()['current_spawn'] = None
     globals()['current_spawn'] = None
     globals()['next_spawn'] = None
+    init_starting_hand()
     # 重置主堡狀態
     CASTLE['level'] = 1
     CASTLE['max_hp'] = 50
     CASTLE['hp'] = CASTLE['max_hp']
     CASTLE['upgrade_cost'] = 20
+#新模式0.0.4 抽卡系統------
+def can_draw_card():
+    # 僅當沒有怪物且不在出怪狀態時才允許抽卡，且金幣足夠
+    return (not wave_incoming) and (len(creeps) == 0) and (gold >= CARD_COST_DRAW)
 
+def draw_card():
+    global gold, hand
+    # 先檢查是否正在出怪或場上仍有怪
+    if wave_incoming or len(creeps) > 0:
+        add_notice("目前正在出怪，請等該波結束後再抽卡", (255,180,120))
+        # sfx(SFX_CLICK)
+        return
+    # 再檢查金幣
+    if gold < CARD_COST_DRAW:
+        add_notice(f"金幣不足：抽卡需要 ${CARD_COST_DRAW}", (255,120,120))
+        # sfx(SFX_CLICK)
+        return
+    # 通過檢查 → 抽卡
+    import random
+    gold -= CARD_COST_DRAW
+    kind = random.choice(CARD_POOL)  # 均等機率；之後可做權重
+    hand.append(kind)
+    add_notice(f"- ${CARD_COST_DRAW} 抽到：{kind} 元素卡", (160,235,170))
+    # sfx(SFX_CLICK)
+
+def use_card_on_grid(r, c):
+    """根據手牌第一張(或選中的)來建塔/升級塔。"""
+    global hand, gold, selected_card
+    if not hand:
+        add_notice("沒有手牌可用", (255,120,120))
+        return
+    # 這裡示範：使用手牌第 1 張
+    card_index = selected_card if (selected_card is not None and 0 <= selected_card < len(hand)) else 0
+    card = hand[card_index]
+
+    if card == "basic":
+        # 基本塔建置
+        if gold < CARD_COST_BUILD:
+            add_notice(f"金幣不足：建塔需要 ${CARD_COST_BUILD}", (255,120,120))
+            return
+        if not is_buildable(r, c) or any(t['r']==r and t['c']==c for t in towers):
+            add_notice("此處不可建塔", (255,120,120))
+            return
+        # 消耗卡片與金幣 → 直接建立箭塔
+        hand.pop(card_index)
+        gold -= CARD_COST_BUILD
+        add_notice(f"- ${CARD_COST_BUILD} 使用『普通塔』卡建置", (160,235,170))
+        # 原本 add_tower 會再扣一次金幣；改寫一個專用建塔，不再扣金幣
+        towers.append({'id': ids['tower'], 'r': r, 'c': c, 'type': 'arrow', 'level': 0, 'cool': 0})
+        ids['tower'] += 1
+        selected_card = None
+        return
+
+    # 元素卡：升級已有塔（把該格塔進化成元素塔）
+    # (邏輯：找到該格塔→花 5 元→轉型與/或提升能力)
+    for t in towers:
+        if t['r']==r and t['c']==c:
+            if gold < CARD_COST_DRAW:
+                add_notice(f"金幣不足：元素升級需要 ${CARD_COST_DRAW}", (255,120,120))
+                return
+            # 消耗卡片與金幣
+            hand.pop(card_index)
+            spend = CARD_COST_DRAW
+            # 將元素映射到現有分支
+            mapping = {
+                "fire": "rocket",
+                "wind": "arrow",   # 例如改為高攻速箭塔（可在 TOWER_TYPES['arrow'] 另設元素旗標）
+                "water": "thunder",# 例如改為連鎖/減速（可在 thunder 上做 slow 效果）
+                "land": "arrow",   # 例如防禦/更高傷害（可在 arrow 上設 buff）
+            }
+            new_type = mapping.get(card, "arrow")
+            gold -= spend
+            t['type'] = new_type
+            # 可以視需要重置 level 或保留：這裡保留 level
+            cx, cy = center_px(r, c)
+            upgrades.append({'x': cx, 'y': cy - 8, 'ttl': LEVELUP_TTL})
+            sfx(SFX_LEVELUP)
+            add_notice(f"- ${spend} 使用『{card}』卡 → {new_type} 塔", (170,220,255))
+            selected_card = None
+            return
+
+    add_notice("沒有選到已建塔的格子可升級", (255,120,120))
+#-----------
 
 # =========================
 # 遊戲狀態切換輔助
@@ -1181,15 +1505,23 @@ def handle_keys(ev):
         return
 
     # 遊戲中
-    if ev.key == pygame.K_SPACE: running = not running
-    elif ev.key == pygame.K_n: next_wave()
-    elif ev.key == pygame.K_r: start_game()
-    elif ev.key == pygame.K_1: speed = 1
-    elif ev.key == pygame.K_2: speed = 2
-    elif ev.key == pygame.K_3: speed = 4
-    elif ev.key == pygame.K_b and sel: add_tower(sel[0], sel[1])
-    elif ev.key == pygame.K_u and sel: upgrade_tower_at(sel[0], sel[1])
-    elif ev.key == pygame.K_s and sel: sell_tower_at(sel[0], sel[1])
+    if ev.key == pygame.K_SPACE:
+        running = not running
+    elif ev.key == pygame.K_n:
+        next_wave()
+    elif ev.key == pygame.K_r:
+        start_game()
+    elif ev.key == pygame.K_1:
+        speed = 1
+    elif ev.key == pygame.K_2:
+        speed = 2
+    elif ev.key == pygame.K_3:
+        speed = 4
+    # Disabled manual build/upgrade by keyboard:
+    # elif ev.key == pygame.K_b and sel: add_tower(sel[0], sel[1])
+    # elif ev.key == pygame.K_u and sel: upgrade_tower_at(sel[0], sel[1])
+    elif ev.key == pygame.K_s and sel:
+        sell_tower_at(sel[0], sel[1])
     elif ev.key == pygame.K_h:
         sfx(SFX_CLICK)
         game_state = GAME_HELP
@@ -1198,10 +1530,14 @@ def handle_keys(ev):
         go_menu()
     elif ev.key == pygame.K_c:
         upgrade_castle()
+    elif ev.key == pygame.K_d:
+        draw_card()
 
 def handle_click(pos):
-    global sel, game_state
-    mx,my = pos
+    global sel, game_state, selected_card
+    mx, my = pos
+
+    # --- MENU / HELP 畫面：不做去抖，立即回應 ---
     if game_state == GAME_MENU:
         # 檢查是否點擊三個按鈕
         cx = W//2 - BTN_W//2
@@ -1214,32 +1550,48 @@ def handle_click(pos):
         for name, r in btns:
             if r.collidepoint(mx, my):
                 if name == 'start':
-                    sfx(SFX_CLICK)
                     if IS_WEB:
-                        try:
-                            pygame.mixer.stop()
-                        except Exception:
-                            pass
+                        try: pygame.mixer.stop()
+                        except Exception: pass
                     start_game()
                 elif name == 'help':
-                    sfx(SFX_CLICK)
                     game_state = GAME_HELP
                 else:
-                    sfx(SFX_CLICK)
                     pygame.quit(); sys.exit()
                 return
         return
     elif game_state == GAME_HELP:
-        # 點擊任意處回到遊戲
-        sfx(SFX_CLICK)
         game_state = GAME_PLAY
         return
 
+    # --- 遊戲中：去抖以防止誤觸，但允許「選牌後馬上點地圖」 ---
+    global _last_click_ts
+    now = pygame.time.get_ticks()
+    if now - _last_click_ts < CLICK_DEBOUNCE_MS:
+        return
+    _last_click_ts = now
+
+    # 先判斷是否點到手牌列（選牌）
+    for rct, idx in HAND_UI_RECTS:
+        if rct.collidepoint(mx, my):
+            # 點擊手牌：切換/選擇
+            if selected_card == idx:
+                selected_card = None
+            else:
+                selected_card = idx
+            # 允許立即在地圖上點擊出牌（重置去抖狀態）
+            _last_click_ts = 0
+            return
     # 遊戲中：原點擊選格邏輯
     if my < TOP or my > TOP + ROWS*CELL: return
     if mx < LEFT or mx > LEFT + COLS*CELL: return
     c = (mx - LEFT) // CELL; r = (my - TOP) // CELL
     sel = (int(r), int(c))
+    # 點擊地圖出牌：必須有選中卡片才能出牌
+    if selected_card is not None and 0 <= selected_card < len(hand):
+        use_card_on_grid(int(r), int(c))
+    else:
+        add_notice("請先選擇要使用的卡片", (255,180,120))
 
 def main():
     global tick, life, running, next_spawn, game_state
@@ -1248,6 +1600,13 @@ def main():
             if ev.type == pygame.QUIT: pygame.quit(); sys.exit()
             elif ev.type == pygame.KEYDOWN: handle_keys(ev)
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1: handle_click(ev.pos)
+
+        if game_state == GAME_LOADING:
+            # 若仍在載入（極少數情況），持續顯示載入畫面
+            draw_loading("載入中…", LOAD_STEP, LOAD_TOTAL)
+            pygame.display.flip(); clock.tick(60)
+            # 當 LOADING 結束時，狀態會在載入階段最後自動切回 MENU
+            continue
 
         if game_state == GAME_MENU:
             draw_main_menu()
@@ -1271,7 +1630,7 @@ def main():
             screen.blit(BG_IMG, (0,0))
         else:
             screen.fill(BG)
-        draw_panel(); draw_world()
+        draw_panel(); draw_world(); draw_hand_bar()
         if life<=0:
             s = pygame.Surface((W,H), pygame.SRCALPHA); s.fill((0,0,0,160)); screen.blit(s,(0,0))
             txt = BIG.render("Game Over - 按 R 重來", True, TEXT); rect = txt.get_rect(center=(W//2, H//2)); screen.blit(txt, rect)
