@@ -1056,7 +1056,7 @@ def draw_panel():
     if not wave_incoming and next_spawn:
         nr, nc = next_spawn
         info = FONT.render(f"＊＊下一波出口：怪物 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
-        screen.blit(info, (16, 620))
+        screen.blit(info, (16, 610))
 
     # 右上角：開始/暫停圖示
     icon = (PLAY_IMG if running else PAUSE_IMG)
@@ -1244,6 +1244,14 @@ def draw_help_screen():
         "清空當波怪物後，才會顯示下一波預告",
         "按 Enter/Space 回到遊戲，或 Esc 返回主選單"
     ]
+    # 額外說明：隨機地圖與右鍵丟棄
+    try:
+        lines += [
+            "地圖選單：按 R 可使用隨機地圖開局",
+            "手牌：右鍵丟棄卡片，獲得 +$1 金幣",
+        ]
+    except Exception:
+        pass
     y = 180
     for ln in lines:
         t = FONT.render(ln, True, (220, 228, 240))
