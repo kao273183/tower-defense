@@ -851,7 +851,7 @@ def draw_map_select():
         dim = pygame.Surface((W,H), pygame.SRCALPHA); dim.fill((0,0,0,120)); screen.blit(dim,(0,0))
     title = BIG.render("選擇地圖", True, (250, 245, 255))
     screen.blit(title, (W//2 - title.get_width()//2, 80))
-    tip = FONT.render("↑/↓ 切換，Enter 確認；Esc 返回主選單", True, (210,220,235))
+    tip = FONT.render("↑/↓ 切換 R隨機生成地圖，Enter 確認；Esc 返回主選單", True, (210,220,235))
     screen.blit(tip, (W//2 - tip.get_width()//2, 120))
 
     # 列表
