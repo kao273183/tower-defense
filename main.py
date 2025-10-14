@@ -1,0 +1,1281 @@
+import pygame, sys, math, random, os
+
+
+import game_config as CFG
+
+# --- detect web (pygbag/pyodide) ---
+IS_WEB = (sys.platform == "emscripten")
+
+
+# 《塔路之戰》 Pygame 版 v0.3  
+"""
+V0.0.3 新增：主選單
+"""
+pygame.init()
+try:
+    pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+except Exception:
+    pass
+towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+W, H = 960, 640
+CELL = 40
+# --- 地圖格數與畫面偏移 ---
+COLS, ROWS = 15, 9
+LEFT = (W - COLS * CELL) // 2
+TOP  = 60
+
+# --- 讀取外部設定：將 game_config.py 中的大寫常數覆蓋到此 ---
+def apply_external_config():
+    global LEFT, TOP
+    if not CFG:
+        return
+    provided = set()
+    for name in dir(CFG):
+        if name.isupper():
+            globals()[name] = getattr(CFG, name)
+            provided.add(name)
+    # 若外部設定未提供 LEFT/TOP，依目前 W/COLS/CELL 重新計算置中
+    if 'LEFT' not in provided:
+        globals()['LEFT'] = (globals()['W'] - globals()['COLS'] * globals()['CELL']) // 2
+    if 'TOP' not in provided:
+        # 若外部未提供，保留現值（預設 60）
+        globals()['TOP'] = globals().get('TOP', 60)
+
+# 套用一次外部設定（需在載入圖片與地圖之前）
+apply_external_config()
+towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+current_spawn = None   # 本波實際出怪口
+next_spawn = None      # 下一波預告出怪口（按 N 前就會看見）
+
+# --- 遊戲狀態（主選單 / 遊戲中 / 說明） ---
+GAME_MENU   = 'menu'
+GAME_PLAY   = 'play'
+GAME_HELP   = 'help'
+game_state  = GAME_MENU
+
+# 主選單按鈕樣式
+BTN_W, BTN_H = 260, 56
+BTN_GAP = 18
+# ---- 外部地圖檔設定 ----
+MAP_USE_FILE    = True
+MAP_FILE_PATH   = "assets/map/map1.txt"  # 可用字元: '0'=可建, '1'=道路, '2'=牆, 'S'=出怪, 'C'=主堡
+
+def load_map_from_file():
+    global MAP, ROWS, COLS, SPAWNS, CASTLE_ROW, CASTLE_COL
+    if not (MAP_USE_FILE and os.path.exists(MAP_FILE_PATH)):
+        return False
+    with open(MAP_FILE_PATH, 'r', encoding='utf-8') as f:
+        lines = [line.rstrip("\n") for line in f if line.strip()]
+    if not lines:
+        return False
+    rows = len(lines)
+    cols = len(lines[0])
+    # 僅接受與目前設定相同尺寸，否則退回預設
+    if rows != ROWS or cols != COLS:
+        print(f"[map] size mismatch: file={cols}x{rows}, expected={COLS}x{ROWS}, fallback to default")
+        return False
+    m = [[0 for _ in range(COLS)] for _ in range(ROWS)]
+    spawns = []
+    castle_r, castle_c = 0, COLS // 2
+    for r, line in enumerate(lines):
+        for c, ch in enumerate(line):
+            if ch == '0':
+                m[r][c] = 0
+            elif ch == '1':
+                m[r][c] = 1
+            elif ch == '2':
+                m[r][c] = 2
+            elif ch.upper() == 'S':
+                m[r][c] = 1  # 視覺上當路
+                spawns.append((r, c))
+            elif ch.upper() == 'C':
+                m[r][c] = 2  # 主堡格不可建，由 draw_map 顯示城堡圖
+                castle_r, castle_c = r, c
+            else:
+                m[r][c] = 0
+    MAP = m
+    SPAWNS = spawns if spawns else [(ROWS-1, COLS//2)]
+    CASTLE_ROW, CASTLE_COL = castle_r, castle_c
+    return True
+#主堡設定
+CASTLE = {
+    'hp': 50,      # 當前血量
+    'max_hp': 50,  # 最大血量
+    'level': 1,      # 當前等級
+    'upgrade_cost': 20,  # 下一次升級所需金幣
+    'hp_increase': 20,  # 每升級增加血量
+}
+# --- 小怪（grunt）圖示設定（可用圖片或程式繪圖） ---
+GRUNT_USE_IMAGE   = True                 # True: 用圖片；False: 用下方程式繪圖
+GRUNT_IMG_PATH    = "assets/pic/monster.png" # 你的小怪圖片路徑（請放到專案 assets/）
+GRUNT_IMG_SIZE    = 32                   # 載入後縮放到這個正方形大小 (px)
+# 下方為程式繪圖備援（若圖片不存在或載入失敗會使用）
+GRUNT_RADIUS      = 14                   # 半徑（整體大小）
+GRUNT_FILL        = (120, 200, 120)      # 內部填色
+#GRUNT_OUTLINE     = (15, 19, 32)         # 外框顏色
+GRUNT_OUTLINE     = (15, 19, 32)         # 外框顏色
+GRUNT_OUTLINE_W   = 2                    # 外框線寬
+
+# --- 其他怪物（runner / brute / boss）圖片設定 ---
+RUNNER_USE_IMAGE = True
+RUNNER_IMG_PATH  = "assets/pic/runner.png"
+RUNNER_IMG_SIZE  = 32
+
+BRUTE_USE_IMAGE  = True
+BRUTE_IMG_PATH   = "assets/pic/brute.png"
+BRUTE_IMG_SIZE   = 36
+
+BOSS_USE_IMAGE   = True
+BOSS_IMG_PATH    = "assets/pic/boss.png"
+BOSS_IMG_SIZE    = 44
+
+# --- 擊中效果（命中時的爆炸/特效）---
+HIT_USE_IMAGE = True
+HIT_IMG_PATH  = "assets/pic/blast.png"
+HIT_IMG_SIZE  = 32   # 會在繪製時做些微放大縮小
+# --- 死亡圖示（怪物死亡時顯示）---
+DEATH_USE_IMAGE = True
+DEATH_IMG_PATH  = "assets/pic/dead.png"
+DEATH_IMG_SIZE  = 40
+
+# --- 擊殺掉落金幣：浮動「+金幣」提示 ---
+GAIN_USE_IMAGE   = True
+GAIN_IMG_PATH    = "assets/pic/game-coin.png"
+GAIN_IMG_SIZE    = 20      # 小圖示大小
+GAIN_TTL         = 30      # 存在幀數（約 0.5 秒）
+GAIN_RISE        = 0.6     # 每幀向上飄的像素值
+GAIN_TEXT_COLOR  = (255, 234, 140)
+
+# 預告用箭頭：顯示下一波的 S 出口
+ARROW_IMG = None
+ARROW_IMG_PATH = "assets/pic/up-arrow.png"
+ARROW_IMG_SIZE = 28
+
+# 右上角狀態圖示（開始/暫停）
+PLAY_IMG = None
+PAUSE_IMG = None
+PLAY_IMG_PATH  = "assets/pic/play.png"
+PAUSE_IMG_PATH = "assets/pic/pause.png"
+STATUS_ICON_SIZE = 24
+STATUS_ICON_MARGIN = 12  # 與右上角邊距
+
+# --- 背景與 Logo ---
+BG_IMG = None
+BG_IMG_PATH = "assets/pic/bg.jpg"   # 建議 1920x1080 或 1280x720，會自動縮放
+LOGO_IMG = None
+LOGO_IMG_PATH = "assets/pic/logo.png"
+LOGO_MAX_W = 420
+
+# --- 音效與 BGM ---
+SFX_SHOOT   = None
+SFX_HIT     = None
+SFX_DEATH   = None
+SFX_COIN    = None
+SFX_LEVELUP = None
+SFX_CLICK   = None
+BGM_PATH    = "assets/sfx/bgm.mp3"
+SFX_DIR     = "assets/sfx"
+SFX_VOL     = 0.6   # 全局音量（0~1）
+BGM_VOL     = 0.35
+
+# --- 防禦塔各等級圖片設定（缺圖則退回程式繪圖） ---
+TOWER_USE_IMAGES = True
+TOWER_IMG_PATHS = {
+    0: "assets/pic/tower_lv1.png",
+    1: "assets/pic/tower_lv2.png",
+    2: "assets/pic/tower_lv3.png",
+    3: "assets/pic/tower_lv3.png",   # 最高等沿用第三張
+}
+ROCKET_TOWER_IMG = None
+ROCKET_TOWER_IMG_PATH = "assets/pic/rocket_tower.png"
+THUNDER_TOWER_IMG = None
+THUNDER_TOWER_IMG_PATH = "assets/pic/thunder_tower.png"
+TOWER_IMG_SIZE = 36  # 圖片縮放邊長（像素）
+
+# --- 升級特效（LEVEL UP） ---
+LEVELUP_USE_IMAGE = True
+LEVELUP_IMG_PATH  = "assets/pic/level-up.png"
+LEVELUP_IMG_SIZE  = 40
+LEVELUP_TTL       = 24
+# --- 建塔 / 升級成本設定 ---
+LEVELUP_RISE      = 0.5
+# --- 建塔 / 升級成本設定 ---
+# --- 建塔 / 升級成本設定 ---
+BUILD_COST = 10  # 蓋一座箭塔消耗金幣
+
+# --- 價格表（建塔 / 升級 / 進化）---
+PRICES = {
+    'build': {
+        'arrow': BUILD_COST,    # 基本箭塔建造費
+        # 若未來要直接建造分支塔，可在此補：'rocket': 6, 'thunder': 6
+    },
+    'upgrade': {
+        # 依等級索引（0→1, 1→2, 2→進化）
+        'arrow':  [10, 15, 20],    # 升到 1/2/3 級的費用（到 3 級時觸發進化邏輯）
+        'rocket': [40, 50],       # 0→1、1→2（若你定義 2 級為滿級）
+        'thunder':[40, 50],
+    },
+    'evolve': {
+        # 從箭塔進化為分支塔的費用（可在設定檔覆蓋）
+        'rocket': 60,
+        'thunder': 60,
+    }
+}
+
+# --- UI 通知（置頂小提示）---
+NOTICES = []  # [{'text': str, 'ttl': int, 'color': (r,g,b), 'x': int|None, 'y': int|None, 'align': 'left'|'right'|'center'}]
+NOTICE_TTL = 90
+# 預設通知顯示位置與樣式（可改）
+NOTICE_X = 16
+NOTICE_Y = 500
+NOTICE_LINE_GAP = 22
+NOTICE_ALIGN_DEFAULT = 'left'  # 'left' | 'right' | 'center'
+
+def add_notice(text, color=(255, 120, 120), ttl=NOTICE_TTL, x=None, y=None, align=None):
+    NOTICES.append({
+        'text': text,
+        'ttl': ttl,
+        'color': color,
+        'x': x,
+        'y': y,
+        'align': (align or NOTICE_ALIGN_DEFAULT)
+    })
+#
+# 成本查詢輔助
+def get_build_cost(ttype='arrow'):
+    return PRICES['build'].get(ttype, BUILD_COST)
+
+# 升級成本查詢
+def get_upgrade_cost(tower):
+    ttype = tower.get('type', 'arrow')
+    lv = tower.get('level', 0)
+    table = PRICES['upgrade'].get(ttype, [])
+    if lv < len(table):
+        return table[lv]
+    return None
+
+# 進化成本查詢
+def get_evolve_cost(target_type):
+    return PRICES.get('evolve', {}).get(target_type, 60)
+#箭塔設定
+TOWER_TYPES = {
+    'arrow': {  # 普通箭塔
+        0: {'atk': 1, 'range': 2, 'rof': 1},
+        1: {'atk': 2, 'range': 2, 'rof': 1},
+        2: {'atk': 2, 'range': 3, 'rof': 2},
+    },
+    'rocket': {  # 火箭塔：高傷害＋範圍爆炸
+        0: {'atk': 3, 'range': 3, 'rof': 0.8},
+        1: {'atk': 4, 'range': 3, 'rof': 1.0},
+    },
+    'thunder': {  # 雷電塔：連鎖閃電攻擊多個目標
+        0: {'atk': 2, 'range': 4, 'rof': 2.5},
+        1: {'atk': 3, 'range': 5, 'rof': 3.0},
+    }
+}
+def find_ch_font():
+    # On web, system fonts are unavailable; prefer bundled font
+    web_font = os.path.join("assets", "font", "NotoSansCJK-Regular.otf")
+    if IS_WEB and os.path.exists(web_font):
+        return web_font
+    paths = [
+        "C:/Windows/Fonts/msjh.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    # fallback: try bundled font even on desktop if present
+    if os.path.exists(web_font):
+        return web_font
+    return None
+
+font_path = find_ch_font()
+if font_path:
+    FONT = pygame.font.Font(font_path, 18)
+    BIG  = pygame.font.Font(font_path, 28)
+else:
+    FONT = pygame.font.SysFont("arial", 18); BIG = pygame.font.SysFont("arial", 28, True)
+
+screen = pygame.display.set_mode((W, H))
+pygame.display.set_caption("塔路之戰-V0.0.3)")
+
+# 嘗試載入各怪物圖片與特效（失敗則退回程式繪圖）
+MONSTER_IMG = None   # grunt
+RUNNER_IMG  = None
+BRUTE_IMG   = None
+BOSS_IMG    = None
+BLAST_IMG   = None   # 擊中圖片
+DEAD_IMG    = None   # 死亡圖片
+COIN_IMG    = None   # +金幣 圖示
+TOWER_IMGS  = {}     # 依等級載入
+LEVELUP_IMG = None   # 升級特效圖
+CASTLE_IMG = None    # 城堡圖片
+WALL_IMG = None      # 牆壁圖片
+CASTLE_IMG_PATH = "assets/pic/castle.png"
+WALL_IMG_PATH = "assets/pic/wall.png"
+CASTLE_IMG_SIZE = 48
+WALL_IMG_SIZE = 40
+try:
+    if GRUNT_USE_IMAGE and os.path.exists(GRUNT_IMG_PATH):
+        _raw = pygame.image.load(GRUNT_IMG_PATH).convert_alpha()
+        MONSTER_IMG = pygame.transform.smoothscale(_raw, (GRUNT_IMG_SIZE, GRUNT_IMG_SIZE))
+    if RUNNER_USE_IMAGE and os.path.exists(RUNNER_IMG_PATH):
+        _raw = pygame.image.load(RUNNER_IMG_PATH).convert_alpha()
+        RUNNER_IMG = pygame.transform.smoothscale(_raw, (RUNNER_IMG_SIZE, RUNNER_IMG_SIZE))
+    if BRUTE_USE_IMAGE and os.path.exists(BRUTE_IMG_PATH):
+        _raw = pygame.image.load(BRUTE_IMG_PATH).convert_alpha()
+        BRUTE_IMG = pygame.transform.smoothscale(_raw, (BRUTE_IMG_SIZE, BRUTE_IMG_SIZE))
+    if BOSS_USE_IMAGE and os.path.exists(BOSS_IMG_PATH):
+        _raw = pygame.image.load(BOSS_IMG_PATH).convert_alpha()
+        BOSS_IMG = pygame.transform.smoothscale(_raw, (BOSS_IMG_SIZE, BOSS_IMG_SIZE))
+    if HIT_USE_IMAGE and os.path.exists(HIT_IMG_PATH):
+        BLAST_IMG = pygame.image.load(HIT_IMG_PATH).convert_alpha()
+    if DEATH_USE_IMAGE and os.path.exists(DEATH_IMG_PATH):
+        _raw = pygame.image.load(DEATH_IMG_PATH).convert_alpha()
+        DEAD_IMG = pygame.transform.smoothscale(_raw, (DEATH_IMG_SIZE, DEATH_IMG_SIZE))
+    if GAIN_USE_IMAGE and os.path.exists(GAIN_IMG_PATH):
+        _raw = pygame.image.load(GAIN_IMG_PATH).convert_alpha()
+        COIN_IMG = pygame.transform.smoothscale(_raw, (GAIN_IMG_SIZE, GAIN_IMG_SIZE))
+    if TOWER_USE_IMAGES:
+        for lv, p in TOWER_IMG_PATHS.items():
+            if p and os.path.exists(p):
+                _raw = pygame.image.load(p).convert_alpha()
+                TOWER_IMGS[lv] = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    if LEVELUP_USE_IMAGE and os.path.exists(LEVELUP_IMG_PATH):
+        _raw = pygame.image.load(LEVELUP_IMG_PATH).convert_alpha()
+        LEVELUP_IMG = pygame.transform.smoothscale(_raw, (LEVELUP_IMG_SIZE, LEVELUP_IMG_SIZE))
+    if os.path.exists(CASTLE_IMG_PATH):
+        _raw = pygame.image.load(CASTLE_IMG_PATH).convert_alpha()
+        CASTLE_IMG = pygame.transform.smoothscale(_raw, (CASTLE_IMG_SIZE, CASTLE_IMG_SIZE))
+    if os.path.exists(WALL_IMG_PATH):
+        _raw = pygame.image.load(WALL_IMG_PATH).convert_alpha()
+        WALL_IMG = pygame.transform.smoothscale(_raw, (WALL_IMG_SIZE, WALL_IMG_SIZE))
+    if os.path.exists(ARROW_IMG_PATH):
+        _raw = pygame.image.load(ARROW_IMG_PATH).convert_alpha()
+        ARROW_IMG = pygame.transform.smoothscale(_raw, (ARROW_IMG_SIZE, ARROW_IMG_SIZE))
+    if os.path.exists(PLAY_IMG_PATH):
+        _raw = pygame.image.load(PLAY_IMG_PATH).convert_alpha()
+        PLAY_IMG = pygame.transform.smoothscale(_raw, (STATUS_ICON_SIZE, STATUS_ICON_SIZE))
+    if os.path.exists(PAUSE_IMG_PATH):
+        _raw = pygame.image.load(PAUSE_IMG_PATH).convert_alpha()
+        PAUSE_IMG = pygame.transform.smoothscale(_raw, (STATUS_ICON_SIZE, STATUS_ICON_SIZE))
+    if os.path.exists(ROCKET_TOWER_IMG_PATH):
+        _raw = pygame.image.load(ROCKET_TOWER_IMG_PATH).convert_alpha()
+        ROCKET_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    if os.path.exists(THUNDER_TOWER_IMG_PATH):
+        _raw = pygame.image.load(THUNDER_TOWER_IMG_PATH).convert_alpha()
+        THUNDER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+
+    # 背景 / Logo
+    if os.path.exists(BG_IMG_PATH):
+        _raw = pygame.image.load(BG_IMG_PATH).convert()
+        BG_IMG = pygame.transform.smoothscale(_raw, (W, H))
+    if os.path.exists(LOGO_IMG_PATH):
+        _raw = pygame.image.load(LOGO_IMG_PATH).convert_alpha()
+        # 等比例縮到 LOGO_MAX_W 寬
+        w, h = _raw.get_width(), _raw.get_height()
+        if w > LOGO_MAX_W:
+            scale = LOGO_MAX_W / float(w)
+            LOGO_IMG = pygame.transform.smoothscale(_raw, (int(w*scale), int(h*scale)))
+        else:
+            LOGO_IMG = _raw
+
+    # 音效載入（安全載入）
+    def _load_sfx(name, vol=SFX_VOL):
+        p = os.path.join(SFX_DIR, name)
+        if os.path.exists(p):
+            s = pygame.mixer.Sound(p)
+            s.set_volume(vol)
+            return s
+        return None
+    SFX_SHOOT   = _load_sfx('shoot.wav',   0.35)
+    SFX_HIT     = _load_sfx('hit.wav',     0.30)
+    SFX_DEATH   = _load_sfx('death.wav',   0.50)
+    SFX_COIN    = _load_sfx('coin.wav',    0.55)
+    SFX_LEVELUP = _load_sfx('levelup.wav', 0.6)
+    SFX_CLICK   = _load_sfx('click.wav',   0.45)
+
+    # BGM
+    if os.path.exists(BGM_PATH) and not IS_WEB:  # web 端可改為點擊開始後再播放，避免自動播放限制
+        try:
+            pygame.mixer.music.load(BGM_PATH)
+            pygame.mixer.music.set_volume(BGM_VOL)
+            pygame.mixer.music.play(-1)
+        except Exception:
+            pass
+except Exception:
+    pass
+
+
+BG=(11,16,32); PANEL=(27,34,56); TEXT=(230,237,243); GRID=(31,42,68)
+ROAD=(180,127,37,140); LAND=(17,168,125,120); BLOCK=(40,48,73,200)
+CYAN=(34,178,234); WHITE=(226,232,240)
+
+
+
+clock = pygame.time.Clock()
+
+# --- tiny helpers ---
+def sfx(sound):
+    try:
+        if sound: sound.play()
+    except Exception:
+        pass
+
+# --- 地圖載入：優先讀外部檔，否則使用預設的直線版 ---
+CASTLE_ROW = 0
+CASTLE_COL = COLS // 2
+
+# 預設：先建立 ROWS x COLS 的可建地
+MAP = [[0 for _ in range(COLS)] for _ in range(ROWS)]
+# 最上排鋪牆（包含城堡那格也標成不可建，純顯示由 draw_map 決定）
+for c in range(COLS):
+    MAP[CASTLE_ROW][c] = 2
+SPAWNS = [(ROWS-1, CASTLE_COL)]
+
+# 嘗試讀外部地圖檔（成功就覆蓋 MAP / SPAWNS / CASTLE_*）
+load_map_from_file()
+# ---- 路徑：依 MAP 中的道路(1) 從每個 S 走到 C ----
+PATHS = {}  # {(sr,sc): [(r,c), ... , (CASTLE_ROW,CASTLE_COL)]}
+
+def _passable(r, c):
+    # 道路可走；城堡格視為終點可進入（使用內嵌邊界判定避免先後順序問題）
+    return (0 <= r < ROWS and 0 <= c < COLS) and (MAP[r][c] == 1 or (r == CASTLE_ROW and c == CASTLE_COL))
+
+def _neighbors(r, c):
+    for dr, dc in ((1,0),(-1,0),(0,1),(0,-1)):
+        rr, cc = r+dr, c+dc
+        if _passable(rr, cc):
+            yield rr, cc
+
+def _bfs_path(start, goal):
+    from collections import deque
+    sr, sc = start; gr, gc = goal
+    q = deque([(sr, sc)])
+    prev = { (sr,sc): None }
+    while q:
+        r, c = q.popleft()
+        if (r, c) == (gr, gc):
+            break
+        for rr, cc in _neighbors(r, c):
+            if (rr, cc) not in prev:
+                prev[(rr, cc)] = (r, c)
+                q.append((rr, cc))
+    if (gr, gc) not in prev:
+        return None
+    path = []
+    cur = (gr, gc)
+    while cur is not None:
+        path.append(cur)
+        cur = prev[cur]
+    path.reverse()
+    return path
+
+def _fallback_path(start, goal):
+    # 若找不到路，就用直線靠近
+    sr, sc = start; gr, gc = goal
+    path = [(sr, sc)]
+    r, c = sr, sc
+    while r != gr:
+        r += -1 if gr < r else 1
+        path.append((r, c))
+    while c != gc:
+        c += -1 if gc < c else 1
+        path.append((r, c))
+    return path
+
+def rebuild_paths():
+    global PATHS
+    PATHS = {}
+    goal = (CASTLE_ROW, CASTLE_COL)
+    for s in SPAWNS:
+        p = _bfs_path(s, goal)
+        if not p:
+            p = _fallback_path(s, goal)
+        PATHS[s] = p
+
+# 建立所有出怪點的路徑
+rebuild_paths()
+# ---- Boss 出場設定：在這些固定波數出現 Boss（於本波第 9 次出怪）----
+BOSS_WAVES = {w for w in range(10, 999, 10)}       
+BOSS_SPAWN_INDEX = 8         # 第 0~8 次出怪中的最後一次（第 9 隊）
+
+def in_bounds(r,c): return 0<=r<ROWS and 0<=c<COLS
+def is_buildable(r,c): return in_bounds(r,c) and MAP[r][c]==0
+
+TOWER = TOWER_TYPES['arrow']
+CREEP={'grunt':{'hp':6,'speed':.020,'reward':1,'color':(244,162,75)},
+'runner':{'hp':5,'speed':.035,'reward':1,'color':(34,179,230)},
+'brute':{'hp':12,'speed':.017,'reward':2,'color':(239,106,106)},
+'boss':{'hp':40,'speed':.012,'reward':6,'color':(139,92,246)}}
+
+running=False; speed=1; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
+towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+
+ids={'tower':1,'creep':1}
+sel=None
+
+def grid_to_px(r,c): return LEFT+c*CELL, TOP+r*CELL
+def center_px(r,c): x,y=grid_to_px(r,c); return x+CELL/2,y+CELL/2
+def manhattan(a,b):
+    return abs(int(a[0]) - int(b[0])) + abs(int(a[1]) - int(b[1]))
+
+def draw_panel():
+    pygame.draw.rect(screen, PANEL, (0,0,W,TOP))
+    txt = FONT.render(f"$ {gold}    Wave {wave}{' (spawning)' if wave_incoming else ''}    Speed x{speed}", True, TEXT)
+    screen.blit(txt, (16, 10))
+    tips = FONT.render("B建塔  U升級  S回收 C 升級主堡 ｜ Space開始/暫停  N下一波  R重置  1/2/3 速度", True, TEXT)
+    screen.blit(tips, (16, TOP-28))
+    if not wave_incoming and next_spawn:
+        nr, nc = next_spawn
+        info = FONT.render(f"＊＊下一波出口：S 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
+        screen.blit(info, (16, 450))
+
+    # 右上角：開始/暫停圖示
+    icon = (PLAY_IMG if running else PAUSE_IMG)
+    if icon:
+        rect = icon.get_rect()
+        rect.top = (TOP - rect.height)//2
+        rect.right = W - STATUS_ICON_MARGIN
+        screen.blit(icon, rect)
+    else:
+        # 備援：文字
+        s = FONT.render("PLAY" if running else "PAUSE", True, TEXT)
+        screen.blit(s, (W - STATUS_ICON_MARGIN - s.get_width(), (TOP - s.get_height())//2))
+
+    # 價格提示（放在面板右下角）
+    price_hint = FONT.render(f"建塔${PRICES['build']['arrow']}｜升級(箭) ${'/'.join(map(str,PRICES['upgrade']['arrow']))}", True, (200,210,230))
+    screen.blit(price_hint, (16, 600))
+
+    # 浮動通知（可自訂座標與對齊；未指定則用全域預設）
+    alive = []
+    cursor_y = NOTICE_Y
+    for n in NOTICES:
+        col = n['color']
+        txt = FONT.render(n['text'], True, col)
+        draw_x = n['x'] if n['x'] is not None else NOTICE_X
+        draw_y = n['y'] if n['y'] is not None else cursor_y
+        align = (n.get('align') or NOTICE_ALIGN_DEFAULT)
+        if align == 'right':
+            pos = (draw_x - txt.get_width(), draw_y)
+        elif align == 'center':
+            pos = (draw_x - txt.get_width()//2, draw_y)
+        else:
+            pos = (draw_x, draw_y)
+        screen.blit(txt, pos)
+        # 下一行（僅當此通知未指定固定 y 時才遞增）
+        if n['y'] is None:
+            cursor_y += NOTICE_LINE_GAP
+        n['ttl'] -= 1
+        if n['ttl'] > 0:
+            alive.append(n)
+    NOTICES[:] = alive
+    #主堡
+    # 顯示主堡狀態
+    castle_txt = FONT.render(f"主堡Lv{CASTLE['level']}  HP:{CASTLE['hp']}", True, (255,255,255))
+    screen.blit(castle_txt, (16, 80))
+
+    # 若想顯示血條
+    bar_x, bar_y, bar_w, bar_h = 16, 100, 160, 8
+    hp_ratio = CASTLE['hp'] / CASTLE['max_hp']
+    pygame.draw.rect(screen, (60,60,60), (bar_x, bar_y, bar_w, bar_h))
+    pygame.draw.rect(screen, (180,60,60), (bar_x, bar_y, int(bar_w * hp_ratio), bar_h))
+
+# =========================
+# 主選單繪製
+def draw_main_menu():
+    screen.fill((16, 20, 35))
+    if BG_IMG:
+        screen.blit(BG_IMG, (0,0))
+        # 蓋一層半透明深色讓文字更清楚
+        dim = pygame.Surface((W,H), pygame.SRCALPHA); dim.fill((0,0,0,120)); screen.blit(dim,(0,0))
+    if LOGO_IMG:
+        lr = LOGO_IMG.get_rect()
+        lr.midtop = (W//2, 40)
+        screen.blit(LOGO_IMG, lr)
+    title = BIG.render("塔路之戰 - 作者：Ethan.Kao", True, (250, 245, 255))
+    subtitle = FONT.render("Tower Defense - 主選單", True, (190, 200, 220))
+    screen.blit(title, (W//2 - title.get_width()//2, 120))
+    screen.blit(subtitle, (W//2 - subtitle.get_width()//2, 160))
+    if IS_WEB:
+        hint = FONT.render("(Web) 點擊開始後才會啟用音效，屬於瀏覽器限制", True, (200, 208, 224))
+        screen.blit(hint, (W//2 - hint.get_width()//2, 180))
+
+    # 計算三個按鈕位置
+    cx = W//2 - BTN_W//2
+    y0 = 240
+    buttons = [
+        ("開始遊戲 (Enter)", cx, y0),
+        ("操作說明 (H)",     cx, y0 + BTN_H + BTN_GAP),
+        ("離開 (Esc)",       cx, y0 + (BTN_H + BTN_GAP)*2)
+    ]
+    mx, my = pygame.mouse.get_pos()
+    for text, bx, by in buttons:
+        r = pygame.Rect(bx, by, BTN_W, BTN_H)
+        hover = r.collidepoint(mx, my)
+        pygame.draw.rect(screen, (40, 55, 96) if hover else (31, 42, 68), r, border_radius=8)
+        pygame.draw.rect(screen, (90, 120, 200), r, 2, border_radius=8)
+        label = FONT.render(text, True, (235, 242, 255))
+        screen.blit(label, (bx + (BTN_W - label.get_width())//2, by + (BTN_H - label.get_height())//2))
+
+    tip = FONT.render("Enter/Space 開始｜H 說明｜Esc 離開", True, (200, 208, 224))
+    screen.blit(tip, (W//2 - tip.get_width()//2, H - 80))
+
+
+def draw_help_screen():
+    screen.fill((16, 20, 35))
+    if BG_IMG:
+        screen.blit(BG_IMG, (0,0))
+        dim = pygame.Surface((W,H), pygame.SRCALPHA); dim.fill((0,0,0,120)); screen.blit(dim,(0,0))
+    title = BIG.render("操作說明", True, (250, 245, 255))
+    screen.blit(title, (W//2 - title.get_width()//2, 120))
+    lines = [
+        "B 建塔｜U 升級｜S 回收｜C 升級主堡",
+        "Space 開始/暫停｜N 下一波｜R 重置",
+        "1/2/3 調整速度",
+        "每波開始前：右上顯示開始/暫停，紅箭頭預告下一個 S 出口",
+        "清空當波怪物後，才會顯示下一波預告",
+        "按 Enter/Space 回到遊戲，或 Esc 返回主選單"
+    ]
+    y = 180
+    for ln in lines:
+        t = FONT.render(ln, True, (220, 228, 240))
+        screen.blit(t, (W//2 - t.get_width()//2, y))
+        y += 30
+
+def draw_map():
+    for r in range(ROWS):
+        for c in range(COLS):
+            x, y = grid_to_px(r, c)
+            rect = pygame.Rect(x, y, CELL, CELL)
+            s = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
+
+            # 先畫底色：依 MAP 值決定
+            if MAP[r][c] == 1:
+                s.fill(ROAD)
+            elif MAP[r][c] == 0:
+                s.fill(LAND)
+            else:  # 2 = 牆/障礙（含主堡格視覺顯示）
+                s.fill(BLOCK)
+            screen.blit(s, rect)
+
+            # 覆蓋主堡 / 牆壁圖示
+            if (r == CASTLE_ROW and c == CASTLE_COL) and CASTLE_IMG:
+                img_rect = CASTLE_IMG.get_rect(center=(x + CELL//2, y + CELL//2))
+                screen.blit(CASTLE_IMG, img_rect)
+            elif MAP[r][c] == 2 and WALL_IMG:
+                # 非主堡的 2 都當牆壁圖示
+                img_rect = WALL_IMG.get_rect(center=(x + CELL//2, y + CELL//2))
+                screen.blit(WALL_IMG, img_rect)
+
+            # 格線
+            pygame.draw.rect(screen, GRID, rect, 1)
+            # 預告箭頭：在下一波的 S 出口上方顯示
+            if not wave_incoming and next_spawn:
+                if (r, c) == next_spawn and ARROW_IMG:
+                    ar = ARROW_IMG.get_rect(center=(x + CELL//2, y + CELL//2))
+                    screen.blit(ARROW_IMG, ar)
+
+def draw_selection():
+    if not sel: return
+    x,y = grid_to_px(sel[0], sel[1]); pygame.draw.rect(screen, CYAN, (x+1,y+1,CELL-2,CELL-2), 2)
+
+def draw_tower_icon(t):
+    # t: {'r','c','level','type',...}
+    r, c = t['r'], t['c']
+    level = t.get('level', 0)
+    ttype = t.get('type', 'arrow')
+    x, y = grid_to_px(r, c)
+    cx, cy = x + CELL//2, y + CELL//2
+
+    if ttype == 'rocket':
+        if 'ROCKET_TOWER_IMG' in globals() and ROCKET_TOWER_IMG:
+            rect = ROCKET_TOWER_IMG.get_rect(center=(cx, cy))
+            screen.blit(ROCKET_TOWER_IMG, rect)
+        else:
+            pygame.draw.circle(screen, (220,80,60), (cx, cy), CELL//2 - 6)
+        return
+    elif ttype == 'thunder':
+        if 'THUNDER_TOWER_IMG' in globals() and THUNDER_TOWER_IMG:
+            rect = THUNDER_TOWER_IMG.get_rect(center=(cx, cy))
+            screen.blit(THUNDER_TOWER_IMG, rect)
+        else:
+            pygame.draw.circle(screen, (80,180,255), (cx, cy), CELL//2 - 6)
+        return
+    else:
+        # arrow：先嘗試用等級圖示，否則退回程式繪圖
+        img = TOWER_IMGS.get(level)
+        if img:
+            rect = img.get_rect(center=(cx, cy))
+            screen.blit(img, rect)
+            return
+        # 備援：原本程式繪圖
+        body_h = 18 if level<2 else 22
+        body_y = y + CELL//2 - body_h//2 + (-4 if level>=2 else 0)
+        rect = pygame.Rect(cx-14, body_y, 28, body_h)
+        pygame.draw.rect(screen, (91,100,116), rect, border_radius=6)
+        pygame.draw.rect(screen, (25,30,43), rect, 2, border_radius=6)
+        pygame.draw.line(screen, (67,74,90), (rect.left, rect.centery), (rect.right, rect.centery), 2)
+        if level>=2:
+            top = pygame.Rect(cx-14, rect.top-10, 28, 10)
+            pygame.draw.rect(screen, (91,100,116), top); pygame.draw.rect(screen, (25,30,43), top, 2)
+            for i in range(4):
+                cren = pygame.Rect(cx-12 + i*6, rect.top-14, 4, 6)
+                pygame.draw.rect(screen, (91,100,116), cren); pygame.draw.rect(screen, (25,30,43), cren, 2)
+        pts = [(cx, y+6), (cx-16, rect.top+2), (cx+16, rect.top+2)]
+        pygame.draw.polygon(screen, (230,127,57), pts); pygame.draw.polygon(screen, (25,30,43), pts, 2)
+
+def draw_monster_icon(m):
+    x,y = grid_to_px(int(m['r']), int(m['c'])); cx, cy = x+CELL//2, y+CELL//2; color = CREEP[m['type']]['color']
+    if m['type']=="runner":
+        if RUNNER_IMG:
+            rect = RUNNER_IMG.get_rect(center=(cx, cy))
+            screen.blit(RUNNER_IMG, rect)
+        else:
+            pts = [(cx-14,cy+8),(cx-4,cy-8),(cx+18,cy-2),(cx+10,cy+10)]
+            pygame.draw.polygon(screen, color, pts); pygame.draw.polygon(screen, (15,19,32), pts, 2)
+            pygame.draw.circle(screen, (255,255,255), (cx-2,cy-4), 3); pygame.draw.circle(screen, (255,255,255), (cx+6,cy-6), 3)
+    elif m['type']=="brute":
+        if BRUTE_IMG:
+            rect = BRUTE_IMG.get_rect(center=(cx, cy))
+            screen.blit(BRUTE_IMG, rect)
+        else:
+            pygame.draw.rect(screen, color, (cx-18,cy-8,36,22), border_radius=8)
+            pygame.draw.rect(screen, (15,19,32), (cx-18,cy-8,36,22), 2, border_radius=8)
+            pygame.draw.rect(screen, color, (cx-10,cy-18,20,12), border_radius=6)
+    elif m['type']=="boss":
+        if BOSS_IMG:
+            rect = BOSS_IMG.get_rect(center=(cx, cy))
+            screen.blit(BOSS_IMG, rect)
+        else:
+            pygame.draw.circle(screen, color, (cx,cy), 16); pygame.draw.circle(screen, (15,19,32), (cx,cy), 16, 2)
+            pygame.draw.circle(screen, (167,139,250), (cx,cy-2), 12); pygame.draw.circle(screen, (15,19,32), (cx,cy-2), 12, 2)
+    else:
+        if MONSTER_IMG:
+            rect = MONSTER_IMG.get_rect(center=(cx, cy))
+            screen.blit(MONSTER_IMG, rect)
+        else:
+            r = GRUNT_RADIUS
+            pygame.draw.circle(screen, GRUNT_FILL, (cx, cy-2), r)
+            pygame.draw.circle(screen, GRUNT_OUTLINE, (cx, cy-2), r, GRUNT_OUTLINE_W)
+            mouth_rect = pygame.Rect(cx - r//2, cy - 2, r, r//2)
+            pygame.draw.arc(screen, (255, 230, 180), mouth_rect, math.radians(20), math.radians(160), 2)
+
+def draw_bullets():
+    for b in bullets:
+        if len(b['trail'])>=2:
+            pygame.draw.lines(screen, (180,190,200), False, b['trail'], 2)
+        pygame.draw.circle(screen, WHITE, (int(b['x']), int(b['y'])), 3)
+
+def draw_hits():
+    alive = []
+    for h in hits:
+        life_ratio = h['ttl'] / 12.0
+        alpha = max(0, min(255, int(255 * life_ratio)))
+        if BLAST_IMG:
+            scale = 1.0 + (1.0 - life_ratio) * 0.3  # 命中瞬間稍微變大
+            size = int(HIT_IMG_SIZE * scale)
+            img = pygame.transform.smoothscale(BLAST_IMG, (size, size)).copy()
+            img.set_alpha(alpha)
+            rect = img.get_rect(center=(h['x'], h['y']))
+            screen.blit(img, rect)
+        else:
+            # 備援：舊版小爆光
+            s = pygame.Surface((16,16), pygame.SRCALPHA)
+            pygame.draw.circle(s, (255,240,180, alpha), (8,8), 6)
+            screen.blit(s, (h['x']-8, h['y']-8))
+        h['ttl'] -= 1
+        if h['ttl'] > 0:
+            alive.append(h)
+    hits[:] = alive
+
+def draw_corpses():
+    # 死亡圖示：逐步淡出 + 輕微縮放（若無圖片則畫簡易符號）
+    alive = []
+    for d in corpses:
+        life_ratio = d['ttl'] / 24.0
+        alpha = max(0, min(255, int(255 * life_ratio)))
+        if DEAD_IMG:
+            scale = 1.0 + (1.0 - life_ratio) * 0.1
+            size = int(DEATH_IMG_SIZE * scale)
+            img = pygame.transform.smoothscale(DEAD_IMG, (size, size)).copy()
+            img.set_alpha(alpha)
+            rect = img.get_rect(center=(d['x'], d['y']))
+            screen.blit(img, rect)
+        else:
+            # 備援：簡單表情
+            r = 16
+            face = pygame.Surface((r*2, r*2), pygame.SRCALPHA)
+            pygame.draw.circle(face, (255, 210, 60, alpha), (r, r), r)
+            # X 眼
+            pygame.draw.line(face, (20,20,20,alpha), (6,8), (14,16), 3)
+            pygame.draw.line(face, (20,20,20,alpha), (14,8), (6,16), 3)
+            pygame.draw.line(face, (20,20,20,alpha), (r+6,8), (r+14,16), 3)
+            pygame.draw.line(face, (20,20,20,alpha), (r+14,8), (r+6,16), 3)
+            # 吐舌
+            pygame.draw.rect(face, (230, 100, 70, alpha), (r-4, r+2, 10, 8), border_radius=3)
+            screen.blit(face, (d['x']-r, d['y']-r))
+        d['ttl'] -= 1
+        if d['ttl'] > 0:
+            alive.append(d)
+    corpses[:] = alive
+
+
+def draw_gains():
+    # 擊殺彈出：小金幣 + "+數字"，向上飄並淡出
+    alive = []
+    for g in gains:
+        g['y'] -= GAIN_RISE
+        life_ratio = g['ttl'] / float(GAIN_TTL)
+        alpha = max(0, min(255, int(255 * life_ratio)))
+        x, y = int(g['x']), int(g['y'])
+        # 圖示
+        if COIN_IMG:
+            coin = COIN_IMG.copy(); coin.set_alpha(alpha)
+            rect = coin.get_rect(center=(x, y))
+            screen.blit(coin, rect)
+            text_x = rect.right + 6; text_y = rect.centery
+        else:
+            text_x = x; text_y = y
+        # 文字
+        txt = FONT.render(f"+{g['amt']}", True, GAIN_TEXT_COLOR)
+        try:
+            txt.set_alpha(alpha)
+        except Exception:
+            pass
+        screen.blit(txt, (text_x, text_y - txt.get_height()//2))
+        g['ttl'] -= 1
+        if g['ttl'] > 0:
+            alive.append(g)
+    gains[:] = alive
+
+def upgrade_castle():
+    global gold, CASTLE
+    cost = CASTLE['upgrade_cost']
+    if gold < cost:
+        add_notice(f"金幣不足：升級主堡需要 ${cost}", (255,120,120))
+        return
+    gold -= cost
+    CASTLE['level'] += 1
+    CASTLE['max_hp'] += CASTLE['hp_increase']
+    CASTLE['hp'] = CASTLE['max_hp']  # 回滿血
+    CASTLE['upgrade_cost'] = int(cost * 1.5)  # 每次升級成本上升
+    add_notice(f"主堡升級至 Lv{CASTLE['level']}！血量上限 {CASTLE['max_hp']}", (180,235,160))
+    sfx(SFX_LEVELUP)
+# 每一波擊殺金幣提升：比上一波多 1%
+# 例：第 1 波=1.01x，第 10 波≈1.1046x
+def reward_for(kind):
+    base = CREEP[kind]['reward']
+    mult = 1.01 ** max(0, int(wave))  # 與血量一致：用 1.01 ** wave
+    return max(1, int(round(base * mult)))
+def draw_upgrades():
+    # 升級特效：在塔的位置顯示 LevelUp 圖示，往上飄並淡出
+    alive = []
+    for u in upgrades:
+        u['y'] -= LEVELUP_RISE
+        life_ratio = u['ttl'] / float(LEVELUP_TTL)
+        alpha = max(0, min(255, int(255 * life_ratio)))
+        if LEVELUP_IMG:
+            img = LEVELUP_IMG.copy(); img.set_alpha(alpha)
+            rect = img.get_rect(center=(int(u['x']), int(u['y'])))
+            screen.blit(img, rect)
+        else:
+            # 備援：綠色箭頭 + 文字
+            txt = BIG.render("LEVEL UP", True, (80, 220, 120))
+            txt.set_alpha(alpha)
+            screen.blit(txt, (int(u['x']-txt.get_width()/2), int(u['y']-txt.get_height()/2)))
+        u['ttl'] -= 1
+        if u['ttl'] > 0:
+            alive.append(u)
+    upgrades[:] = alive
+
+def get_creep_by_id(cid):
+    for m in creeps:
+        if m['id']==cid: return m
+    return None
+
+def tower_fire(t):
+    global gold
+    ttype = t.get('type', 'arrow')
+    stat = TOWER_TYPES[ttype][t['level']]
+    in_range = [m for m in creeps if m['alive'] and manhattan((t['r'], t['c']), (int(m['r']), int(m['c']))) <= stat['range']]
+    if not in_range: return
+
+    # 特殊塔行為
+    if ttype == 'thunder':
+        targets = sorted(in_range, key=lambda m: m['r'])[:3]
+        for m in targets:
+            tx, ty = center_px(m['r'], int(m['c']))
+            hits.append({'x': tx, 'y': ty, 'ttl': 12})
+            sfx(SFX_HIT)
+            m['hp'] -= stat['atk']
+            if m['hp'] <= 0:
+                m['alive'] = False
+                corpses.append({'x': tx, 'y': ty, 'ttl': 24})
+                reward_amt = reward_for(m['type'])
+                gains.append({'x': tx, 'y': ty - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+                gold += reward_amt
+                sfx(SFX_DEATH); sfx(SFX_COIN)
+        return
+
+    # 一般與火箭塔共用射擊邏輯
+    target = sorted(in_range, key=lambda m: m['r'])[0]
+    sx, sy = center_px(t['r'], t['c'])
+    tx, ty = center_px(target['r'], int(target['c']))
+    dx, dy = tx - sx, ty - sy
+    length = math.hypot(dx, dy) or 1.0
+    spd = 8.0
+    vx, vy = dx / length * spd, dy / length * spd
+    sfx(SFX_SHOOT)
+    bullets.append({
+        'x': sx, 'y': sy, 'vx': vx, 'vy': vy,
+        'dmg': stat['atk'] * (1.5 if ttype == 'rocket' else 1),
+        'target_id': target['id'],
+        'ttl': 120, 'trail': [(sx, sy)],
+        'aoe': (ttype == 'rocket')
+    })
+
+def spawn_logic():
+    global spawn_counter, wave_incoming, creeps, ids, next_spawn
+    if not wave_incoming: return
+    if spawn_counter % 60 == 0:
+        idx = (spawn_counter // 60)
+        if idx<=8:
+            # 固定波數刷 Boss；否則依原本模式出小怪
+            if (wave in BOSS_WAVES) and (idx == BOSS_SPAWN_INDEX):
+                kind = "boss"
+            else:
+                kind = "brute" if idx%3==0 else ("runner" if idx%2==0 else "grunt")
+            sr, sc = (current_spawn if current_spawn else (SPAWNS[0] if SPAWNS else (ROWS-1, COLS//2)))
+            data = CREEP[kind]
+            route = PATHS.get((sr, sc)) or [(sr, sc), (CASTLE_ROW, CASTLE_COL)]
+            # 每一波怪物血量提升 1%（基於上一波）
+            base_hp = data['hp'] * (1.01 ** wave)
+            creeps.append({
+                'id': ids['creep'], 'type': kind,
+                'r': float(sr), 'c': float(sc), 'wp': 1, 'route': route,
+                'hp': int(base_hp), 'alive': True,
+                'speed': data['speed']*(1+wave*0.03), 'reward': data['reward']
+            })
+            ids['creep'] += 1
+    spawn_counter += 1
+    if spawn_counter >= 60*9:
+        wave_incoming = False
+        spawn_counter = 0
+        # 預告延後到所有怪被清空時再抽（在 main() 內判斷）
+
+def move_creeps():
+    global life, creeps
+    alive = []
+    for m in creeps:
+        if not m['alive']:
+            continue
+        route = m.get('route')
+        wp = m.get('wp', 1)
+
+        # 沒路徑就保險直線上移
+        if not route or wp >= len(route):
+            m['r'] -= m['speed']
+            if int(m['r']) <= CASTLE_ROW:
+                dmg = (3 if m['type'] == 'boss' else 1)
+                CASTLE['hp'] = max(0, CASTLE['hp'] - dmg)
+                add_notice(f"主堡受攻擊！-{dmg} HP", (255,100,100))
+                if CASTLE['hp'] <= 0:
+                    life = 0  # 觸發遊戲結束
+            else:
+                alive.append(m)
+            continue
+
+        tr, tc = route[wp]
+        dr, dc = tr - m['r'], tc - m['c']
+        dist = math.hypot(dr, dc)
+        step = m['speed']  # 單位：格/幀
+
+        if dist <= step:
+            # 到達當前 waypoint
+            m['r'], m['c'] = float(tr), float(tc)
+            m['wp'] = wp + 1
+            if m['wp'] >= len(route):  # 到達終點（城堡）
+                dmg = (3 if m['type'] == 'boss' else 1)
+                CASTLE['hp'] = max(0, CASTLE['hp'] - dmg)
+                add_notice(f"主堡受攻擊！-{dmg} HP", (255,100,100))
+                if CASTLE['hp'] <= 0:
+                    life = 0  # 觸發遊戲結束
+            else:
+                alive.append(m)
+        else:
+            # 朝 waypoint 前進
+            m['r'] += (dr / dist) * step
+            m['c'] += (dc / dist) * step
+            alive.append(m)
+    creeps[:] = alive
+def towers_step():
+    for t in towers:
+        stat = TOWER_TYPES[t.get('type','arrow')][t['level']]
+        cd_need = max(1, int(30 / stat['rof']))
+        t['cool'] = t.get('cool',0) + 1
+        if t['cool'] >= cd_need:
+            tower_fire(t)
+            t['cool']=0
+
+def bullets_step():
+    global gold
+    alive = []
+    for b in bullets:
+        b['x'] += b['vx']; b['y'] += b['vy']
+        if len(b['trail'])==0 or (abs(b['trail'][-1][0]-b['x'])+abs(b['trail'][-1][1]-b['y']))>2:
+            b['trail'].append((b['x'], b['y'])); 
+            if len(b['trail'])>8: b['trail'].pop(0)
+        b['ttl'] -= 1
+        target = get_creep_by_id(b['target_id'])
+        if target and target['alive']:
+            tx, ty = center_px(target['r'], int(target['c']))
+            if math.hypot(b['x']-tx, b['y']-ty) < 10:
+                target['hp'] -= b['dmg']; hits.append({'x':tx,'y':ty,'ttl':12}); sfx(SFX_HIT)
+                if target['hp'] <= 0:
+                    target['alive'] = False
+                    corpses.append({'x': tx, 'y': ty, 'ttl': 24})
+                    reward_amt = reward_for(target['type'])
+                    gains.append({'x': tx, 'y': ty - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+                    gold += reward_amt
+                    sfx(SFX_DEATH); sfx(SFX_COIN)
+                continue
+        if 0 <= b['x'] <= W and 0 <= b['y'] <= H and b['ttl']>0: alive.append(b)
+    bullets[:] = alive
+
+def draw_world():
+    draw_map()
+    for t in towers: draw_tower_icon(t)
+    draw_upgrades()
+    for m in creeps: draw_monster_icon(m)
+    draw_bullets(); draw_hits(); draw_corpses(); draw_gains(); draw_selection()
+
+def add_tower(r,c):
+    global gold, towers, ids
+    cost = get_build_cost('arrow')
+    # 不可建地、已有塔
+    if (not is_buildable(r,c)) or any(t['r']==r and t['c']==c for t in towers):
+        return
+    if gold < cost:
+        add_notice(f"金幣不足：建塔需要 ${cost}", (255, 120, 120))
+        return
+    gold -= cost
+    towers.append({'id': ids['tower'], 'r': r, 'c': c, 'type': 'arrow', 'level': 0, 'cool': 0})
+    ids['tower'] += 1
+    add_notice(f"- ${cost} 建造箭塔", (160, 235, 170))
+
+def upgrade_tower_at(r, c):
+    global gold, towers
+    for t in towers:
+        if t['r']==r and t['c']==c:
+            # 進化點：箭塔等級2再升級→分支（需額外收費）
+            if t['type'] == 'arrow' and t['level'] == 2:
+                # 進化為分支塔需要花費
+                branch = random.choice(['rocket', 'thunder'])
+                evolve_cost = get_evolve_cost(branch)
+                if gold < evolve_cost:
+                    add_notice(f"金幣不足：進化為 {branch} 需要 ${evolve_cost}", (255,120,120))
+                    return
+                gold -= evolve_cost
+                t['type'] = branch
+                t['level'] = 0
+                cx, cy = center_px(r, c)
+                upgrades.append({'x': cx, 'y': cy - 8, 'ttl': LEVELUP_TTL})
+                sfx(SFX_LEVELUP)
+                add_notice(f"- ${evolve_cost} 進化成功：{branch} 塔", (170, 220, 255))
+                return
+            # 一般升級費用
+            cost = get_upgrade_cost(t)
+            if cost is None:
+                return
+            if gold < cost:
+                add_notice(f"金幣不足：升級需要 ${cost}", (255, 120, 120))
+                return
+            gold -= cost
+            t['level'] += 1
+            cx, cy = center_px(r, c)
+            upgrades.append({'x': cx, 'y': cy - 8, 'ttl': LEVELUP_TTL})
+            sfx(SFX_LEVELUP)
+            add_notice(f"- ${cost} 升級完成 (Lv{t['level']})", (160, 235, 170))
+            return
+
+def sell_tower_at(r,c):
+    global gold, towers
+    for i,t in enumerate(towers):
+        if t['r']==r and t['c']==c:
+            refund = max(1, BUILD_COST - 1) + t['level']
+            gold += refund
+            towers.pop(i)
+            add_notice(f"+ ${refund} 回收防禦塔", (255, 230, 120))
+            return
+
+def next_wave():
+    global wave, wave_incoming, spawn_counter, current_spawn, next_spawn
+    if wave_incoming: return
+    wave += 1
+    wave_incoming = True
+    spawn_counter = 0
+    # 使用預告的出口，若沒有則抽一個
+    if next_spawn:
+        current_spawn = next_spawn
+        next_spawn = None
+    else:
+        current_spawn = random.choice(SPAWNS) if SPAWNS else (ROWS-1, COLS//2)
+
+def reset_game():
+    global running, tick, gold, life, wave, wave_incoming, spawn_counter, towers, creeps, bullets, hits, corpses, gains, upgrades
+    running=False; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
+    towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+    towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+    globals()['current_spawn'] = None
+    globals()['current_spawn'] = None
+    globals()['next_spawn'] = None
+    # 重置主堡狀態
+    CASTLE['level'] = 1
+    CASTLE['max_hp'] = 50
+    CASTLE['hp'] = CASTLE['max_hp']
+    CASTLE['upgrade_cost'] = 20
+
+
+# =========================
+# 遊戲狀態切換輔助
+def start_game():
+    global game_state
+    reset_game()           # 重置資源與佈局
+    game_state = GAME_PLAY # 進入遊戲（預設暫停狀態，等玩家按 Space/N）
+
+
+def go_menu():
+    global game_state, running
+    running = False
+    game_state = GAME_MENU
+
+
+def handle_keys(ev):
+    global running, speed, sel, game_state
+    if game_state == GAME_MENU:
+        if ev.key in (pygame.K_RETURN, pygame.K_SPACE):
+            sfx(SFX_CLICK)
+            if IS_WEB:
+                try:
+                    pygame.mixer.stop()
+                except Exception:
+                    pass
+            start_game()
+        elif ev.key == pygame.K_h:
+            sfx(SFX_CLICK)
+            game_state = GAME_HELP
+        elif ev.key == pygame.K_ESCAPE:
+            sfx(SFX_CLICK)
+            pygame.quit(); sys.exit()
+        return
+    elif game_state == GAME_HELP:
+        if ev.key in (pygame.K_RETURN, pygame.K_SPACE):
+            sfx(SFX_CLICK)
+            game_state = GAME_PLAY
+        elif ev.key == pygame.K_ESCAPE:
+            sfx(SFX_CLICK)
+            go_menu()
+        return
+
+    # 遊戲中
+    if ev.key == pygame.K_SPACE: running = not running
+    elif ev.key == pygame.K_n: next_wave()
+    elif ev.key == pygame.K_r: start_game()
+    elif ev.key == pygame.K_1: speed = 1
+    elif ev.key == pygame.K_2: speed = 2
+    elif ev.key == pygame.K_3: speed = 4
+    elif ev.key == pygame.K_b and sel: add_tower(sel[0], sel[1])
+    elif ev.key == pygame.K_u and sel: upgrade_tower_at(sel[0], sel[1])
+    elif ev.key == pygame.K_s and sel: sell_tower_at(sel[0], sel[1])
+    elif ev.key == pygame.K_h:
+        sfx(SFX_CLICK)
+        game_state = GAME_HELP
+    elif ev.key == pygame.K_ESCAPE:
+        sfx(SFX_CLICK)
+        go_menu()
+    elif ev.key == pygame.K_c:
+        upgrade_castle()
+
+def handle_click(pos):
+    global sel, game_state
+    mx,my = pos
+    if game_state == GAME_MENU:
+        # 檢查是否點擊三個按鈕
+        cx = W//2 - BTN_W//2
+        y0 = 240
+        btns = [
+            ("start", pygame.Rect(cx, y0, BTN_W, BTN_H)),
+            ("help",  pygame.Rect(cx, y0 + BTN_H + BTN_GAP, BTN_W, BTN_H)),
+            ("quit",  pygame.Rect(cx, y0 + (BTN_H + BTN_GAP)*2, BTN_W, BTN_H)),
+        ]
+        for name, r in btns:
+            if r.collidepoint(mx, my):
+                if name == 'start':
+                    sfx(SFX_CLICK)
+                    if IS_WEB:
+                        try:
+                            pygame.mixer.stop()
+                        except Exception:
+                            pass
+                    start_game()
+                elif name == 'help':
+                    sfx(SFX_CLICK)
+                    game_state = GAME_HELP
+                else:
+                    sfx(SFX_CLICK)
+                    pygame.quit(); sys.exit()
+                return
+        return
+    elif game_state == GAME_HELP:
+        # 點擊任意處回到遊戲
+        sfx(SFX_CLICK)
+        game_state = GAME_PLAY
+        return
+
+    # 遊戲中：原點擊選格邏輯
+    if my < TOP or my > TOP + ROWS*CELL: return
+    if mx < LEFT or mx > LEFT + COLS*CELL: return
+    c = (mx - LEFT) // CELL; r = (my - TOP) // CELL
+    sel = (int(r), int(c))
+
+def main():
+    global tick, life, running, next_spawn, game_state
+    while True:
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT: pygame.quit(); sys.exit()
+            elif ev.type == pygame.KEYDOWN: handle_keys(ev)
+            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1: handle_click(ev.pos)
+
+        if game_state == GAME_MENU:
+            draw_main_menu()
+            pygame.display.flip(); clock.tick(60)
+            continue
+        elif game_state == GAME_HELP:
+            draw_help_screen()
+            pygame.display.flip(); clock.tick(60)
+            continue
+
+        # === 遊戲中 ===
+        if running and life>0:
+            for _ in range(speed):
+                tick += 1
+                spawn_logic(); move_creeps(); towers_step(); bullets_step()
+        # 無論是否暫停：當不再出怪且場上沒有怪時，才抽下一波預告出口
+        if not wave_incoming and next_spawn is None and not creeps and SPAWNS:
+            next_spawn = random.choice(SPAWNS)
+
+        if BG_IMG:
+            screen.blit(BG_IMG, (0,0))
+        else:
+            screen.fill(BG)
+        draw_panel(); draw_world()
+        if life<=0:
+            s = pygame.Surface((W,H), pygame.SRCALPHA); s.fill((0,0,0,160)); screen.blit(s,(0,0))
+            txt = BIG.render("Game Over - 按 R 重來", True, TEXT); rect = txt.get_rect(center=(W//2, H//2)); screen.blit(txt, rect)
+        pygame.display.flip(); clock.tick(60)
+
+if __name__ == "__main__":
+    main()
