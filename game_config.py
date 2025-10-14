@@ -278,7 +278,7 @@ CREEP_CONFIG = {
     },
     "boss": {
         "name": "魔王",
-        "hp": 1000,
+        "hp": 150,
         "speed": 0.06,
         "reward": 50,
         "attack": 20,

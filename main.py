@@ -14,10 +14,10 @@ V0.0.4 新增：抽卡機制
 V0.0.5 新增：地圖選擇
 V0.0.51 新增：錢幣卡片、機率調整
 V0.0.52 新增：多了幾個怪物
-
+V0.0.53 修正:怪物血量、攻擊力、速度調整
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.52-Beta"
+TITLENAME = "塔路之戰-V0.0.53-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -1933,10 +1933,19 @@ def draw_card():
     elif card_type == '3money':
         money_gain = 3
 
-    if money_gain > 0:
+    if False and money_gain > 0:
         gold += money_gain
         add_notice(f"💰 獲得金幣 +{money_gain}！", (255, 236, 140))
         sfx(SFX_COIN)
+        # 視覺效果：中心閃光
+        effects.append({
+            'type': 'flash',
+            'timer': 20,
+            'color': (255, 255, 100),
+            'alpha': 200,
+            'radius': 80,
+            'pos': (W//2, H//2)
+        })
         # 閃光特效
         effects.append({
             'type': 'flash',
@@ -2157,7 +2166,7 @@ def handle_keys(ev):
         draw_card()
 
 def handle_click(pos):
-    global sel, game_state, selected_card
+    global sel, game_state, selected_card, hand, gold, effects
     mx, my = pos
 
     # --- MENU / HELP 畫面：不做去抖，立即回應 ---
@@ -2214,6 +2223,26 @@ def handle_click(pos):
     # 先判斷是否點到手牌列（選牌）
     for rct, idx in HAND_UI_RECTS:
         if rct.collidepoint(mx, my):
+            # 若點到的是金幣卡，立即生效（不需再點地圖）
+            if 0 <= idx < len(hand):
+                cn = hand[idx]
+                if cn in ("1money", "2money", "3money"):
+                    try:
+                        amt = int(cn[0])
+                    except Exception:
+                        amt = 1
+                    hand.pop(idx)
+                    gold += amt
+                    add_notice(f"+ ${amt} 金幣卡", (255, 236, 140))
+                    sfx(SFX_COIN)
+                    effects.append({
+                        'type': 'flash', 'timer': 20,
+                        'color': (255, 255, 100), 'alpha': 200,
+                        'radius': 80, 'pos': (W//2, H//2)
+                    })
+                    if selected_card is not None and selected_card >= len(hand):
+                        selected_card = None
+                    return
             # 點擊手牌：切換/選擇
             if selected_card == idx:
                 selected_card = None
