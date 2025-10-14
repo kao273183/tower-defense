@@ -10,7 +10,13 @@ IS_WEB = (sys.platform == "emscripten")
 # 《塔路之戰》 Pygame 版 v0.0.5  
 """
 V0.0.3 新增：主選單
+V0.0.4 新增：抽卡機制
+V0.0.5 新增：地圖選擇
+V0.0.51 新增：錢幣卡片、機率調整
+
+未來規劃
 """
+TITLENAME = "塔路之戰-V0.0.51-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -150,7 +156,7 @@ def load_map_from_file():
 # === 卡片系統 ===
 CARD_COST_DRAW = 5       # 抽卡花費
 CARD_COST_BUILD = 10     # Basic_Tower 建置花費（與 BUILD_COST 保持一致或直接以此為主）
-CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade"]  # 加入升級卡
+CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade", "1money", "2money", "3money"]
 # 卡面圖與費用（使用你的素材）
 CARD_IMAGES = {
     "basic":   "assets/pic/Basic_Tower.png",
@@ -159,11 +165,16 @@ CARD_IMAGES = {
     "water":   "assets/pic/waterCard.png",
     "land":    "assets/pic/landCard.png",
     "upgrade": "assets/pic/UpgradeCard.png",   # 升級卡（請將圖放在此路徑）
+    "1money": "assets/pic/money1.png",
+    "2money": "assets/pic/money2.png",
+    "3money": "assets/pic/money3.png",
     "bg":      "assets/pic/BgCard.png",        # 卡底背景
 }
 
 # 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
 CARD_SKIP_SLOT_BG = {"upgrade"}
+# === 抽卡權重（可被 game_config.py 覆蓋） ===
+# key 必須對應 hand / use_card_on_grid 內使用的卡名：basic, fire, water, land, wind, upgrade
 CARD_COSTS = {
     "basic":   CARD_COST_BUILD,  # 10
     "fire":    CARD_COST_DRAW,   # 5
@@ -171,9 +182,66 @@ CARD_COSTS = {
     "water":   CARD_COST_DRAW,
     "land":    CARD_COST_DRAW,
     "upgrade": 0,                # 升級卡本身不再額外扣金幣
+    "1money": 0,
+    "2money": 0,
+    "3money": 0,
 }
+
+CARD_RATES_DEFAULT = [
+    {'type': 'basic',   'weight': 45},
+    {'type': 'fire',    'weight': 2},
+    {'type': 'water',   'weight': 2},
+    {'type': 'land',    'weight': 2},
+    {'type': 'wind',    'weight': 2},
+    {'type': 'upgrade', 'weight': 2},
+    {'type': '1money', 'weight': 20},#金幣卡
+    {'type': '2money', 'weight': 15},#金幣卡
+    {'type': '3money', 'weight': 10},#金幣卡
+]
+
+def _get_card_rates():
+    # 若外部設定有提供 CARD_RATES，且格式正確，則使用外部；否則用預設
+    rates = getattr(CFG, 'CARD_RATES', None)
+    if isinstance(rates, (list, tuple)) and rates:
+        cleaned = []
+        for item in rates:
+            if isinstance(item, dict) and 'type' in item and 'weight' in item:
+                try:
+                    w = float(item['weight'])
+                except Exception:
+                    continue
+                if item['type'] in CARD_POOL and w > 0:
+                    cleaned.append({'type': item['type'], 'weight': w})
+        if cleaned:
+            return cleaned
+    return CARD_RATES_DEFAULT
+
+def _weighted_choice(card_rates):
+    total = sum(c['weight'] for c in card_rates)
+    r = random.uniform(0, total)
+    upto = 0.0
+    for c in card_rates:
+        w = c['weight']
+        if upto + w >= r:
+            return c['type']
+        upto += w
+    return card_rates[-1]['type']  # 理論上不會到這裡
+
+def _card_display_name(name):
+    mapping = {
+        'basic': '普通塔',
+        'fire': '火元素',
+        'water': '水元素',
+        'land': '地元素',
+        'wind': '風元素',
+        'upgrade': '升級',
+        '1money': '新增金幣1元',
+        '2money': '新增金幣2元',
+        '3money': '新增金幣3元',
+    }
+    return mapping.get(name, name)
 # === 卡片圖快取與縮放 ===
-CARD_SLOT_SIZE = (128, 128)   # 與 draw_hand_bar 一致
+CARD_SLOT_SIZE = (80, 110)   # 固定每張卡片在手牌列的顯示尺寸
 CARD_SURFACES = {}          # 原始圖
 CARD_SURF_SCALED = {}       # 縮放後圖 (依 slot 尺寸)
 BG_CARD_IMG = None          # 預先縮好的卡底
@@ -195,7 +263,7 @@ def _init_card_assets():
         BG_CARD_IMG = pygame.transform.smoothscale(CARD_SURFACES['bg'], CARD_SLOT_SIZE)
 
 def get_card_scaled(name):
-    """取得縮放後的卡面圖（快取）。"""
+    """取得縮放後的卡面圖（快取），保證在 CARD_SLOT_SIZE 內留邊距並置中。"""
     key = (name, CARD_SLOT_SIZE)
     if key in CARD_SURF_SCALED:
         return CARD_SURF_SCALED[key]
@@ -203,8 +271,12 @@ def get_card_scaled(name):
     if not src:
         return None
     slot_w, slot_h = CARD_SLOT_SIZE
+    # 統一留邊，避免不同素材看起來大小不一
+    pad_x, pad_y = 6, 8
+    avail_w = max(1, slot_w - pad_x*2)
+    avail_h = max(1, slot_h - pad_y*2)
     iw, ih = src.get_width(), src.get_height()
-    scale = min((slot_w - 12) / max(1, iw), (slot_h - 18) / max(1, ih))
+    scale = min(avail_w / iw, avail_h / ih)
     img = pygame.transform.smoothscale(src, (int(iw * scale), int(ih * scale)))
     CARD_SURF_SCALED[key] = img
     return img
@@ -564,7 +636,7 @@ HAND_BAR_MARGIN_BOTTOM = 36  # 將手牌列往上抬高一些，避免被底部�
 
 screen = pygame.display.set_mode((W, H))
 #標題
-pygame.display.set_caption("塔路之戰-V0.0.5-Beta")
+pygame.display.set_caption(TITLENAME)
 
 # === Loading Screen Helpers ===
 LOADING = True
@@ -895,7 +967,7 @@ CREEP={'grunt':{'hp':6,'speed':.020,'reward':1,'color':(244,162,75)},
 'boss':{'hp':40,'speed':.012,'reward':6,'color':(139,92,246)}}
 
 running=False; speed=1; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
-towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[];effects = []
 
 ids={'tower':1,'creep':1}
 sel=None
@@ -1005,8 +1077,8 @@ def draw_hand_bar():
     # 畫卡底或藍色光框
     # ===== 抽卡背面圖處理 =====
     if bg_img:
-        # 自訂抽卡背面大小（例如比普通卡稍大）
-        deck_img_w, deck_img_h = 80, 110
+        # 使用 slot size
+        deck_img_w, deck_img_h = slot_w, slot_h
         scaled_bg = pygame.transform.smoothscale(bg_img, (deck_img_w, deck_img_h))
 
         # 把它放在 deck_rect 的中間，但略往上移一點
@@ -1017,14 +1089,6 @@ def draw_hand_bar():
         # 沒有圖就畫藍色光框
         pygame.draw.rect(screen, (31, 42, 68), deck_rect, border_radius=10)
         pygame.draw.rect(screen, (50, 120, 255), deck_rect, 4, border_radius=10)
-    # 在卡片中央畫一個背面圖/符號
-    #if bg_img:
-        # 若有 bg 圖已繪製，疊加一個簡單圖樣
-        # 可在此加裝飾
-    #    pass
-    #else:
-        # 畫一個藍色光框
-    #    pygame.draw.rect(screen, (50, 120, 255), deck_rect, 4, border_radius=10)
     # 上方加文字
     deck_label = SMALL.render("抽卡區", True, (180, 210, 255))
     deck_label_x = deck_rect.centerx - deck_label.get_width() // 2
@@ -1039,37 +1103,14 @@ def draw_hand_bar():
         rect = pygame.Rect(draw_x, y, slot_w, slot_h)
         HAND_UI_RECTS.append((rect, i))
 
-        # 卡底：有些卡片圖本身含有外框，避免再疊 BgCard 造成「多重外框」
-        #if name in CARD_SKIP_SLOT_BG:
-            # 升級卡：完全不畫外框或槽底，避免「雙框」
-        #    pass
-        #else:
-        #    if bg_img:
-        #        screen.blit(bg_img, rect)
-        #    else:
-        #        pygame.draw.rect(screen, (31, 42, 68), rect, border_radius=10)
-        #        pygame.draw.rect(screen, (90, 120, 200), rect, 2, border_radius=10)
-
         # 卡面圖
         img = get_card_scaled(name)
         if img:
-            if name in CARD_SKIP_SLOT_BG:
-                # 再縮一點，避免內建外框與槽框重疊
-                iw, ih = img.get_width(), img.get_height()
-                pad_scale = 0.92
-                img = pygame.transform.smoothscale(img, (int(iw*pad_scale), int(ih*pad_scale)))
             ir = img.get_rect(center=(rect.centerx, rect.centery))
             screen.blit(img, ir)
         else:
             label = FONT.render(name[:6], True, (235, 242, 255))
             screen.blit(label, (rect.x + 6, rect.y + 6))
-
-        # # 費用文字
-        # cost = CARD_COSTS.get(name)
-        # if cost is not None:
-        #     cost_txt = SMALL.render(f"${cost}", True, (255, 236, 140))
-        #     screen.blit(cost_txt, (rect.centerx - cost_txt.get_width() // 2,
-        #                            rect.bottom - cost_txt.get_height() - 4))
 
         # 選取高亮框
         if selected_card == i:
@@ -1712,27 +1753,79 @@ def can_draw_card():
     return (not wave_incoming) and (len(creeps) == 0) and (gold >= CARD_COST_DRAW)
 
 def draw_card():
-    global gold, hand
-    # 先檢查是否正在出怪或場上仍有怪
-    if wave_incoming or len(creeps) > 0:
-        add_notice("目前正在出怪，請等該波結束後再抽卡", (255,180,120))
-        # sfx(SFX_CLICK)
+    global gold, hand, effects
+
+    # 僅在「非出怪」且「場上無怪」且「金幣足夠」時可抽卡
+    if not can_draw_card():
+        add_notice("現在不可抽卡：需等該波結束且金幣足夠", (255, 180, 120))
+        sfx(SFX_CLICK)
         return
-    # 再檢查金幣
+
+    # 抽卡花費
     if gold < CARD_COST_DRAW:
         add_notice(f"金幣不足：抽卡需要 ${CARD_COST_DRAW}", (255,120,120))
-        # sfx(SFX_CLICK)
+        sfx(SFX_CLICK)
         return
-    if len(hand) >= MAX_HAND_CARDS:
-        add_notice("卡牌已達上限，請先丟棄卡片再抽！", color=(255,180,120))
-        return
-    # 通過檢查 → 抽卡
-    import random
     gold -= CARD_COST_DRAW
-    kind = random.choice(CARD_POOL)  # 均等機率；之後可做權重
-    hand.append(kind)
-    add_notice(f"- ${CARD_COST_DRAW} 抽到：{kind} 元素卡", (160,235,170))
-    # sfx(SFX_CLICK)
+
+    # 隨機抽卡（權重決定機率）
+    rates = _get_card_rates()
+    card_type = random.choices(
+        [c['type'] for c in rates],
+        weights=[c['weight'] for c in rates]
+    )[0]
+
+    # 播放抽卡音效
+    sfx(SFX_CLICK)
+
+    # === 金幣卡立即生效 ===
+    money_gain = 0
+    if card_type == '1money':
+        money_gain = 1
+    elif card_type == '2money':
+        money_gain = 2
+    elif card_type == '3money':
+        money_gain = 3
+
+    if money_gain > 0:
+        gold += money_gain
+        add_notice(f"💰 獲得金幣 +{money_gain}！", (255, 236, 140))
+        sfx(SFX_COIN)
+        # 閃光特效
+        effects.append({
+            'type': 'flash',
+            'timer': 20,              # 持續 20 frame
+            'color': (255, 255, 100),
+            'alpha': 200,
+            'radius': 80,
+            'pos': (W//2, H//2)
+        })
+        return  # 金幣卡不進手牌
+
+    # === 其他卡：加入手牌 ===
+    if len(hand) < MAX_HAND_CARDS:
+        hand.append(card_type)
+        add_notice(f"抽到『{_card_display_name(card_type)}』", (180, 220, 255))
+    else:
+        add_notice("⚠️ 手牌已滿，無法抽卡。", (255, 120, 120))
+def draw_effects():
+    remove_fx = []
+    for fx in effects:
+        if fx.get('type') == 'flash':
+            s = pygame.Surface((W, H), pygame.SRCALPHA)
+            # 以剩餘時間做淡出
+            life_ratio = max(0.0, min(1.0, fx.get('timer', 0) / 20.0))
+            alpha = int(fx.get('alpha', 200) * life_ratio)
+            color = fx.get('color', (255,255,100))
+            pos   = fx.get('pos', (W//2, H//2))
+            radius = fx.get('radius', 80)
+            pygame.draw.circle(s, (*color, alpha), pos, radius)
+            screen.blit(s, (0, 0))
+            fx['timer'] = fx.get('timer', 0) - 1
+            if fx['timer'] <= 0:
+                remove_fx.append(fx)
+    for fx in remove_fx:
+        effects.remove(fx)
 
 def use_card_on_grid(r, c):
     """根據手牌第一張(或選中的)來建塔/升級塔。"""
@@ -1743,6 +1836,19 @@ def use_card_on_grid(r, c):
     # 這裡示範：使用手牌第 1 張
     card_index = selected_card if (selected_card is not None and 0 <= selected_card < len(hand)) else 0
     card = hand[card_index]
+
+    # ---- 金幣卡：直接獲得 1/2/3 元，不需點地圖格 ----
+    if card in ("1money", "2money", "3money"):
+        try:
+            amt = int(card[0])  # '1money' -> 1, '2money' -> 2, '3money' -> 3
+        except Exception:
+            amt = 1
+        hand.pop(card_index)
+        gold += amt
+        add_notice(f"+ ${amt} 金幣卡", (255, 236, 140))
+        sfx(SFX_COIN)
+        selected_card = None
+        return
 
     if card == "basic":
         # 基本塔建置
@@ -2046,6 +2152,7 @@ def main():
         else:
             screen.fill(BG)
         draw_panel(); draw_world(); draw_hand_bar()
+        draw_effects()
         if life<=0:
             s = pygame.Surface((W,H), pygame.SRCALPHA); s.fill((0,0,0,160)); screen.blit(s,(0,0))
             txt = BIG.render("Game Over - 按 R 重來", True, TEXT); rect = txt.get_rect(center=(W//2, H//2)); screen.blit(txt, rect)

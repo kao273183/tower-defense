@@ -42,6 +42,18 @@ PRICES = {
     'thunder': 60,
   }
 }
+#卡片機率
+CARD_RATES = [
+    {'type': 'basic',   'weight': 45},
+    {'type': 'fire',    'weight': 2},
+    {'type': 'water',   'weight': 2},
+    {'type': 'land',    'weight': 2},
+    {'type': 'wind',    'weight': 2},
+    {'type': 'upgrade', 'weight': 2},
+    {'type': '1money', 'weight': 20},#金幣卡
+    {'type': '2money', 'weight': 15},#金幣卡
+    {'type': '3money', 'weight': 10},#金幣卡
+]
 
 # ===== 塔數值（可獨立調平衡）====# game_config.py
 TOWER_TYPES = {
@@ -166,7 +178,10 @@ ROCKET_TOWER_IMG_PATH  = "assets/pic/firetower.png"
 WATER_TOWER_IMG_PATH = "assets/pic/watertower.png"
 LAND_TOWER_IMG_PATH  = "assets/pic/landtower.png"
 WIND_TOWER_IMG_PATH  = "assets/pic/windtower.png"
-
+#金幣卡
+MONEY1_IMG_PATH = "assets/pic/money1.png"
+MONEY2_IMG_PATH = "assets/pic/money2.png"
+MONEY3_IMG_PATH = "assets/pic/money3.png"
 # 怪物圖片
 GRUNT_USE_IMAGE  = True
 GRUNT_IMG_PATH   = "assets/pic/monster.png"
