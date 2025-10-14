@@ -1045,7 +1045,7 @@ def draw_panel():
     pygame.draw.rect(screen, PANEL, (0,0,W,TOP))
     txt = FONT.render(f"$ {gold}    Wave {wave}{' (spawning)' if wave_incoming else ''}    Speed x{speed}", True, TEXT)
     screen.blit(txt, (16, 10))
-    tips = FONT.render("D抽卡｜左鍵：使用卡片建塔或升級 S回收｜Space暫停/開始｜N下一波｜R重置｜1/2/3速度", True, TEXT)
+    tips = FONT.render("C升級主堡 S回收｜Space暫停/開始｜N下一波｜R重置｜1/2/3速度", True, TEXT)
     screen.blit(tips, (16, TOP-28))
     if not wave_incoming and next_spawn:
         nr, nc = next_spawn
@@ -1615,7 +1615,8 @@ def spawn_logic():
             'wp': 1, 'route': route,
             'hp': hp_scaled, 'alive': True,
             'speed': spd_scaled, 'reward': reward,
-            'effects': {}
+            'effects': {},
+            'rewarded': False
         })
         ids['creep'] += 1
 
@@ -1652,6 +1653,7 @@ def move_creeps():
                         gains.append({'x': cx, 'y': cy - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
                         global gold
                         gold += reward_amt
+                        m['rewarded'] = True
                         sfx(SFX_DEATH); sfx(SFX_COIN)
                         eff[key] = None
                         break
@@ -1708,6 +1710,15 @@ def move_creeps():
             m['c'] += (dc / dist) * step
             alive.append(m)
     creeps[:] = alive
+    # Fallback: ensure any newly-dead creeps grant rewards once
+    for m in creeps:
+        if (not m.get('alive')) and (not m.get('rewarded')):
+            cx, cy = center_px(m['r'], int(m['c']))
+            reward_amt = reward_for(m.get('type', 'slime'))
+            gains.append({'x': cx, 'y': cy - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+            gold += reward_amt
+            m['rewarded'] = True
+            sfx(SFX_COIN)
 def towers_step():
     for t in towers:
         stat = TOWER_TYPES[t.get('type','arrow')][t['level']]
@@ -1737,6 +1748,7 @@ def bullets_step():
                     reward_amt = reward_for(target['type'])
                     gains.append({'x': tx, 'y': ty - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
                     gold += reward_amt
+                    target['rewarded'] = True
                     sfx(SFX_DEATH); sfx(SFX_COIN)
                 continue
             # 元素效果（單體）
@@ -1767,9 +1779,20 @@ def bullets_step():
                             reward_amt = reward_for(m['type'])
                             gains.append({'x': mx, 'y': my - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
                             gold += reward_amt
+                            m['rewarded'] = True
                             sfx(SFX_DEATH); sfx(SFX_COIN)
         if 0 <= b['x'] <= W and 0 <= b['y'] <= H and b['ttl']>0: alive.append(b)
     bullets[:] = alive
+
+    # Fallback: ensure any newly-dead creeps grant rewards once
+    for m in creeps:
+        if (not m.get('alive')) and (not m.get('rewarded')):
+            cx, cy = center_px(m['r'], int(m['c']))
+            reward_amt = reward_for(m.get('type', 'slime'))
+            gains.append({'x': cx, 'y': cy - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+            gold += reward_amt
+            m['rewarded'] = True
+            sfx(SFX_COIN)
 
 def draw_world():
     draw_map()

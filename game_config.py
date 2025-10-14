@@ -59,8 +59,8 @@ TOWER_TYPES = {
     'arrow': {
         0: {'atk': 1, 'range': 2, 'rof': 1.0},
         1: {'atk': 2, 'range': 2, 'rof': 1.2},
-        2: {'atk': 2, 'range': 3, 'rof': 1.6},
-        3: {'atk': 3, 'range': 3, 'rof': 2.0},
+        2: {'atk': 3, 'range': 3, 'rof': 1.6},
+        3: {'atk': 4, 'range': 3, 'rof': 2.0},
     },
     'rocket': {
         0: {'atk': 3, 'range': 3, 'rof': 0.8},
@@ -242,7 +242,7 @@ NOTICE_ALIGN_DEFAULT = 'left'  # 'left' | 'center' | 'right'
 CREEP_CONFIG = {
     "slime": {
         "name": "史萊姆",
-        "hp": 10,
+        "hp": 5,
         "speed": 0.01,
         "reward": 1,
         "attack": 1,
@@ -251,7 +251,7 @@ CREEP_CONFIG = {
     },
     "runner": {
         "name": "鬼魂",
-        "hp": 10,
+        "hp": 5,
         "speed": 0.02,
         "reward": 2,
         "attack": 2,
@@ -260,7 +260,7 @@ CREEP_CONFIG = {
     },
     "bat": {
         "name": "蝙蝠",
-        "hp": 20,
+        "hp": 5,
         "speed": 0.02,
         "reward": 1,
         "attack": 1,
@@ -269,7 +269,7 @@ CREEP_CONFIG = {
     },
     "giant": {
         "name": "巨人",
-        "hp": 60,
+        "hp": 30,
         "speed": 0.05,
         "reward": 10,
         "attack": 5,
