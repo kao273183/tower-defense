@@ -17,7 +17,7 @@ V0.0.52 新增：多了幾個怪物
 V0.0.53 修正:怪物血量、攻擊力、速度調整
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.53-Beta"
+TITLENAME = "塔路之戰-V0.0.54-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
