@@ -1,5 +1,5 @@
 import pygame, sys, math, random, os
-
+from game_config import CREEP_CONFIG, get_wave_creeps
 
 import game_config as CFG
 
@@ -7,16 +7,17 @@ import game_config as CFG
 IS_WEB = (sys.platform == "emscripten")
 
 
-# 《塔路之戰》 Pygame 版 v0.0.5  
+# 《塔路之戰》 Pygame 版 v0.0.5 
 """
 V0.0.3 新增：主選單
 V0.0.4 新增：抽卡機制
 V0.0.5 新增：地圖選擇
 V0.0.51 新增：錢幣卡片、機率調整
+V0.0.52 新增：多了幾個怪物
 
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.51-Beta"
+TITLENAME = "塔路之戰-V0.0.52-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -970,6 +971,7 @@ running=False; speed=1; tick=0; gold=100; life=20; wave=0; wave_incoming=False; 
 towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[];effects = []
 
 ids={'tower':1,'creep':1}
+wave_spawn_queue=[]; SPAWN_INTERVAL=60
 sel=None
 
 def grid_to_px(r,c): return LEFT+c*CELL, TOP+r*CELL
@@ -1481,31 +1483,56 @@ def tower_fire(t):
     })
 
 def spawn_logic():
-    global spawn_counter, wave_incoming, creeps, ids, next_spawn
-    if not wave_incoming: return
-    if spawn_counter % 60 == 0:
-        idx = (spawn_counter // 60)
-        if idx<=8:
-            # 固定波數刷 Boss；否則依原本模式出小怪
-            if (wave in BOSS_WAVES) and (idx == BOSS_SPAWN_INDEX):
-                kind = "boss"
-            else:
-                kind = "brute" if idx%3==0 else ("runner" if idx%2==0 else "grunt")
-            sr, sc = (current_spawn if current_spawn else (SPAWNS[0] if SPAWNS else (ROWS-1, COLS//2)))
-            data = CREEP[kind]
-            route = PATHS.get((sr, sc)) or [(sr, sc), (CASTLE_ROW, CASTLE_COL)]
-            # 每一波怪物血量提升 1%（基於上一波）
-            base_hp = data['hp'] * (1.01 ** wave)
-            creeps.append({
-                'id': ids['creep'], 'type': kind,
-                'r': float(sr), 'c': float(sc), 'wp': 1, 'route': route,
-                'hp': int(base_hp), 'alive': True,
-                'speed': data['speed']*(1+wave*0.03), 'reward': data['reward'],
-                'effects': {}
-            })
-            ids['creep'] += 1
+    global spawn_counter, wave_incoming, creeps, ids, next_spawn, current_spawn, wave_spawn_queue
+    if not wave_incoming:
+        return
+
+    # 首次進入本波：建立出怪佇列（依 game_config 設定）
+    if spawn_counter == 0 and not wave_spawn_queue:
+        plan = get_wave_creeps(wave)  # e.g. [{'type':'slime','count':5}, {'type':'orc','count':3}] or boss
+        wave_spawn_queue = []
+        for item in plan:
+            ctype = item.get('type')
+            cnt   = int(item.get('count', 1))
+            for _ in range(max(1, cnt)):
+                wave_spawn_queue.append(ctype)
+        # 小隨機化出怪順序（非 Boss 波時）
+        if not (wave % 10 == 0):
+            random.shuffle(wave_spawn_queue)
+
+    # 每 SPAWN_INTERVAL 幀出 1 隻
+    if spawn_counter % SPAWN_INTERVAL == 0 and wave_spawn_queue:
+        kind = wave_spawn_queue.pop(0)
+        cdata = CREEP_CONFIG.get(kind)
+        if not cdata:
+            # 後相容：若設定缺失，退回舊表
+            cdata = {
+                'hp': CREEP.get(kind, {}).get('hp', 10),
+                'speed': CREEP.get(kind, {}).get('speed', 0.02),
+                'reward': CREEP.get(kind, {}).get('reward', 1),
+                'attack': CREEP.get(kind, {}).get('attack', 1),
+            }
+
+        sr, sc = (current_spawn if current_spawn else (SPAWNS[0] if SPAWNS else (ROWS-1, COLS//2)))
+        route = PATHS.get((sr, sc)) or [(sr, sc), (CASTLE_ROW, CASTLE_COL)]
+
+        # 成長：血量每波 +1%，移動速度每波 +3%
+        hp_scaled = int(round(cdata.get('hp', 10) * (1.01 ** wave)))
+        spd_scaled = float(cdata.get('speed', 0.02)) * (1.0 + 0.03 * wave)
+
+        creeps.append({
+            'id': ids['creep'], 'type': kind,
+            'r': float(sr), 'c': float(sc), 'wp': 1, 'route': route,
+            'hp': hp_scaled, 'alive': True,
+            'speed': spd_scaled, 'reward': cdata.get('reward', 1),
+            'effects': {}
+        })
+        ids['creep'] += 1
+
     spawn_counter += 1
-    if spawn_counter >= 60*9:
+
+    # 本波結束條件：佇列清空且已過一輪出怪節點
+    if (not wave_spawn_queue) and (spawn_counter % SPAWN_INTERVAL == 0):
         wave_incoming = False
         spawn_counter = 0
         # 預告延後到所有怪被清空時再抽（在 main() 內判斷）

@@ -1,6 +1,6 @@
 # ==== 視窗 / 地圖 ====
 from main import LAND
-
+import random
 
 W = 960
 H = 640
@@ -183,15 +183,22 @@ MONEY1_IMG_PATH = "assets/pic/money1.png"
 MONEY2_IMG_PATH = "assets/pic/money2.png"
 MONEY3_IMG_PATH = "assets/pic/money3.png"
 # 怪物圖片
-GRUNT_USE_IMAGE  = True
-GRUNT_IMG_PATH   = "assets/pic/monster.png"
-GRUNT_IMG_SIZE   = 32
+SLIME_IMG_PATH  = True
+SLIME_IMG_PATH   = "assets/pic/slime.png"
+SLIME_IMG_PATH   = 32
 RUNNER_USE_IMAGE = True
 RUNNER_IMG_PATH  = "assets/pic/runner.png"
 RUNNER_IMG_SIZE  = 32
 BRUTE_USE_IMAGE  = True
 BRUTE_IMG_PATH   = "assets/pic/brute.png"
 BRUTE_IMG_SIZE   = 36
+BAT_IMG_PATH = True
+BAT_IMG_PATH   = "assets/pic/bat.png"
+BAT_IMG_SIZE   = 32
+GIANT_IMG_PATH = True
+GIANT_IMG_PATH   = "assets/pic/giant.png"
+GIANT_IMG_PATH   = 32
+#BOSS
 BOSS_USE_IMAGE   = True
 BOSS_IMG_PATH    = "assets/pic/boss.png"
 BOSS_IMG_SIZE    = 44
@@ -230,3 +237,64 @@ NOTICE_X = 16
 NOTICE_Y = 500
 NOTICE_LINE_GAP = 22
 NOTICE_ALIGN_DEFAULT = 'left'  # 'left' | 'center' | 'right'
+
+
+# === 怪物設定 ===
+CREEP_CONFIG = {
+    "slime": {
+        "name": "史萊姆",
+        "hp": 10,
+        "speed": 1.0,
+        "reward": 1,
+        "attack": 1,
+        "color": (120, 255, 120),
+        "image": SLIME_IMG_PATH
+    },
+    "runner": {
+        "name": "鬼魂",
+        "hp": 10,
+        "speed": 0.8,
+        "reward": 2,
+        "attack": 2,
+        "color": (180, 130, 90),
+        "image": RUNNER_IMG_PATH
+    },
+    "bat": {
+        "name": "蝙蝠",
+        "hp": 20,
+        "speed": 1.5,
+        "reward": 1,
+        "attack": 1,
+        "color": (120, 120, 220),
+        "image": BAT_IMG_PATH
+    },
+    "giant": {
+        "name": "巨人",
+        "hp": 60,
+        "speed": 0.5,
+        "reward": 10,
+        "attack": 5,
+        "color": (200, 80, 80),
+        "image":GIANT_IMG_PATH
+    },
+    "boss": {
+        "name": "魔王",
+        "hp": 1000,
+        "speed": 0.4,
+        "reward": 50,
+        "attack": 20,
+        "color": (255, 60, 60)
+    }
+}
+
+# 波次配置（每10波出現 Boss）
+def get_wave_creeps(wave_num: int):
+    creeps = []
+    if wave_num % 10 == 0:
+        creeps.append({"type": "boss", "count": 1})
+    else:
+        base = ["slime", "runner", "bat","giant"]
+        for _ in range(3 + wave_num // 2):
+            ctype = random.choice(base)
+            creeps.append({"type": ctype, "count": 1})
+    return creeps
