@@ -1,2 +1,4 @@
 __pycache__/game_config.cpython-313.pyc
 *.pyc
+.DS_Store
+/assets

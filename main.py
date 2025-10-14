@@ -7,7 +7,7 @@ import game_config as CFG
 IS_WEB = (sys.platform == "emscripten")
 
 
-# 《塔路之戰》 Pygame 版 v0.3  
+# 《塔路之戰》 Pygame 版 v0.0.5  
 """
 V0.0.3 新增：主選單
 """
@@ -49,6 +49,7 @@ next_spawn = None      # 下一波預告出怪口（按 N 前就會看見）
 
 # --- 遊戲狀態（主選單 / 遊戲中 / 說明） ---
 GAME_MENU    = 'menu'
+GAME_MAPSEL  = 'mapselect'   # 新增：地圖選擇
 GAME_PLAY    = 'play'
 GAME_HELP    = 'help'
 GAME_LOADING = 'loading'
@@ -59,7 +60,52 @@ BTN_W, BTN_H = 260, 56
 BTN_GAP = 18
 # ---- 外部地圖檔設定 ----
 MAP_USE_FILE    = True
-MAP_FILE_PATH   = "assets/map/map1.txt"  # 可用字元: '0'=可建, '1'=道路, '2'=牆, 'S'=出怪, 'C'=主堡
+MAP_FILE_PATH   = "assets/map/map1.txt"  # 可用字元: '0'=可建, '1'=道路, '2'=牆, '3'=不可建, 'S'=出怪, 'C'=主堡
+
+# --- 地圖選擇相關 ---
+MAPS_DIR        = "assets/map"
+MAP_CHOICES     = []   # [{'name': 'map1', 'path': 'assets/map/map1.txt'}, ...]
+selected_map_idx = 0
+
+def discover_maps():
+    """掃描 MAPS_DIR 取得所有 .txt 地圖清單（固定 ROWSxCOLS 才列入）。"""
+    global MAP_CHOICES, selected_map_idx
+    MAP_CHOICES = []
+    if os.path.isdir(MAPS_DIR):
+        for fname in sorted(os.listdir(MAPS_DIR)):
+            if not fname.lower().endswith(".txt"):
+                continue
+            fpath = os.path.join(MAPS_DIR, fname)
+            # 粗略驗證：讀第一行長度是否為 COLS，行數是否為 ROWS，不合則仍可列出但加上標註
+            ok = True
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    lines = [l.rstrip("\n") for l in f if l.strip()]
+                ok = (len(lines) == ROWS and (len(lines[0]) if lines else 0) == COLS)
+            except Exception:
+                ok = False
+            name = os.path.splitext(fname)[0]
+            if ok:
+                MAP_CHOICES.append({'name': name, 'path': fpath})
+            else:
+                # 仍列出，供玩家嘗試；但名稱後面標註尺寸不符
+                MAP_CHOICES.append({'name': f"{name} (尺寸不符)", 'path': fpath})
+    if not MAP_CHOICES:
+        # 無檔案時，至少提供目前預設 MAP_FILE_PATH
+        MAP_CHOICES = [{'name': os.path.basename(MAP_FILE_PATH), 'path': MAP_FILE_PATH}]
+    # 預設選第一個
+    selected_map_idx = 0
+
+def set_current_map(path):
+    """設定目前地圖檔並重新載入路徑。"""
+    global MAP_FILE_PATH
+    MAP_FILE_PATH = path
+    load_map_from_file()
+    # 若已定義路徑重建函式，立即重建；若尚未定義（啟動早期），稍後全域會呼叫一次 rebuild_paths()
+    try:
+        rebuild_paths()
+    except NameError:
+        pass
 
 def load_map_from_file():
     global MAP, ROWS, COLS, SPAWNS, CASTLE_ROW, CASTLE_COL
@@ -86,6 +132,8 @@ def load_map_from_file():
                 m[r][c] = 1
             elif ch == '2':
                 m[r][c] = 2
+            elif ch == '3':
+                m[r][c] = 3  # 不可建造區
             elif ch.upper() == 'S':
                 m[r][c] = 1  # 視覺上當路
                 spawns.append((r, c))
@@ -515,7 +563,8 @@ SMALL = pygame.font.Font(font_path, 14) if font_path else pygame.font.SysFont("a
 HAND_BAR_MARGIN_BOTTOM = 36  # 將手牌列往上抬高一些，避免被底部遮擋
 
 screen = pygame.display.set_mode((W, H))
-pygame.display.set_caption("塔路之戰-V0.0.4")
+#標題
+pygame.display.set_caption("塔路之戰-V0.0.5-Beta")
 
 # === Loading Screen Helpers ===
 LOADING = True
@@ -696,10 +745,44 @@ _init_card_assets()
 LOAD_STEP = 8
 draw_loading("完成！", LOAD_STEP, LOAD_TOTAL)
 LOADING = False
+# 掃描可用地圖並套用預設第一張
+discover_maps()
+if MAP_CHOICES:
+    set_current_map(MAP_CHOICES[0]['path'])
 game_state = GAME_MENU
+# 新增：地圖選擇畫面
+def draw_map_select():
+    screen.fill((16, 20, 35))
+    if BG_IMG:
+        screen.blit(BG_IMG, (0,0))
+        dim = pygame.Surface((W,H), pygame.SRCALPHA); dim.fill((0,0,0,120)); screen.blit(dim,(0,0))
+    title = BIG.render("選擇地圖", True, (250, 245, 255))
+    screen.blit(title, (W//2 - title.get_width()//2, 80))
+    tip = FONT.render("↑/↓ 切換，Enter 確認；Esc 返回主選單", True, (210,220,235))
+    screen.blit(tip, (W//2 - tip.get_width()//2, 120))
+
+    # 列表
+    cx = W//2 - 420//2
+    y0 = 170
+    item_w, item_h = 420, 44
+    gap = 10
+
+    mx, my = pygame.mouse.get_pos()
+    for i, item in enumerate(MAP_CHOICES):
+        r = pygame.Rect(cx, y0 + i*(item_h+gap), item_w, item_h)
+        if r.collidepoint(mx, my):
+            hover = True
+        else:
+            hover = False
+        sel = (i == selected_map_idx)
+        base = (40,55,96) if (hover or sel) else (31,42,68)
+        pygame.draw.rect(screen, base, r, border_radius=8)
+        pygame.draw.rect(screen, (90,120,200) if sel else (70,90,130), r, 2, border_radius=8)
+        label = FONT.render(item['name'], True, (235,242,255))
+        screen.blit(label, (r.x + 12, r.y + (item_h - label.get_height())//2))
 
 BG=(11,16,32); PANEL=(27,34,56); TEXT=(230,237,243); GRID=(31,42,68)
-ROAD=(180,127,37,140); LAND=(17,168,125,120); BLOCK=(40,48,73,200)
+ROAD=(180,127,37,140); LAND=(17,168,125,120); BLOCK=(40,48,73,200);GREY=(100,100,100,100)
 CYAN=(34,178,234); WHITE=(226,232,240)
 
 # === Click performance tuning ===
@@ -1068,6 +1151,8 @@ def draw_map():
                 s.fill(ROAD)
             elif MAP[r][c] == 0:
                 s.fill(LAND)
+            elif MAP[r][c] == 3:
+                s.fill(GREY)
             else:  # 2 = 牆/障礙（含主堡格視覺顯示）
                 s.fill(BLOCK)
             screen.blit(s, rect)
@@ -1744,7 +1829,7 @@ def go_menu():
 
 
 def handle_keys(ev):
-    global running, speed, sel, game_state
+    global game_state, running, speed, sel, selected_map_idx
     if game_state == GAME_MENU:
         if ev.key in (pygame.K_RETURN, pygame.K_SPACE):
             sfx(SFX_CLICK)
@@ -1753,7 +1838,9 @@ def handle_keys(ev):
                     pygame.mixer.stop()
                 except Exception:
                     pass
-            start_game()
+            # 進入地圖選擇畫面
+            discover_maps()
+            game_state = GAME_MAPSEL
         elif ev.key == pygame.K_h:
             sfx(SFX_CLICK)
             game_state = GAME_HELP
@@ -1761,6 +1848,24 @@ def handle_keys(ev):
             sfx(SFX_CLICK)
             pygame.quit(); sys.exit()
         return
+    elif game_state == GAME_MAPSEL:
+        if ev.key == pygame.K_ESCAPE:
+            sfx(SFX_CLICK)
+            game_state = GAME_MENU
+            return
+        if ev.key in (pygame.K_UP, pygame.K_w):
+            sfx(SFX_CLICK)
+            selected_map_idx = (selected_map_idx - 1) % len(MAP_CHOICES)
+            return
+        if ev.key in (pygame.K_DOWN, pygame.K_s):
+            sfx(SFX_CLICK)
+            selected_map_idx = (selected_map_idx + 1) % len(MAP_CHOICES)
+            return
+        if ev.key in (pygame.K_RETURN, pygame.K_SPACE):
+            sfx(SFX_CLICK)
+            set_current_map(MAP_CHOICES[selected_map_idx]['path'])
+            start_game()
+            return
     elif game_state == GAME_HELP:
         if ev.key in (pygame.K_RETURN, pygame.K_SPACE):
             sfx(SFX_CLICK)
@@ -1819,12 +1924,29 @@ def handle_click(pos):
                     if IS_WEB:
                         try: pygame.mixer.stop()
                         except Exception: pass
-                    start_game()
+                    # 進入地圖選擇畫面
+                    discover_maps()
+                    game_state = GAME_MAPSEL
                 elif name == 'help':
                     game_state = GAME_HELP
                 else:
                     pygame.quit(); sys.exit()
                 return
+        return
+    elif game_state == GAME_MAPSEL:
+        # 滑鼠選地圖
+        cx = W//2 - 420//2
+        y0 = 170
+        item_w, item_h = 420, 44
+        gap = 10
+        mx, my = pos
+        for i, item in enumerate(MAP_CHOICES):
+            r = pygame.Rect(cx, y0 + i*(item_h+gap), item_w, item_h)
+            if r.collidepoint(mx, my):
+                set_current_map(item['path'])
+                start_game()
+                return
+        # 點擊空白不做事
         return
     elif game_state == GAME_HELP:
         game_state = GAME_PLAY
@@ -1899,6 +2021,10 @@ def main():
 
         if game_state == GAME_MENU:
             draw_main_menu()
+            pygame.display.flip(); clock.tick(60)
+            continue
+        elif game_state == GAME_MAPSEL:
+            draw_map_select()
             pygame.display.flip(); clock.tick(60)
             continue
         elif game_state == GAME_HELP:
