@@ -15,9 +15,11 @@ V0.0.5 新增：地圖選擇
 V0.0.51 新增：錢幣卡片、機率調整
 V0.0.52 新增：多了幾個怪物
 V0.0.53 修正:怪物血量、攻擊力、速度調整
+V0.0.55 新增：隨機地圖、右鍵丟棄卡片獲得金幣
+V0.0.57 新增：新增背景BGM
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.56-Beta"
+TITLENAME = "塔路之戰-V0.0.57-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -372,7 +374,7 @@ SFX_DEATH   = None
 SFX_COIN    = None
 SFX_LEVELUP = None
 SFX_CLICK   = None
-BGM_PATH    = "assets/sfx/bgm.WAV"
+BGM_PATH    = "assets/sfx/bgMusic.WAV"
 SFX_DIR     = "assets/sfx"
 SFX_VOL     = 0.6   # 全局音量（0~1）
 BGM_VOL     = 0.35
@@ -845,6 +847,11 @@ if MAP_CHOICES:
 game_state = GAME_MENU
 # 新增：地圖選擇畫面
 def draw_map_select():
+    # stop BGM outside main menu
+    try:
+        pygame.mixer.music.stop()
+    except Exception:
+        pass
     screen.fill((16, 20, 35))
     if BG_IMG:
         screen.blit(BG_IMG, (0,0))
@@ -1230,6 +1237,11 @@ def draw_main_menu():
 
 
 def draw_help_screen():
+    # stop BGM outside main menu
+    try:
+        pygame.mixer.music.stop()
+    except Exception:
+        pass
     screen.fill((16, 20, 35))
     if BG_IMG:
         screen.blit(BG_IMG, (0,0))
@@ -2129,6 +2141,10 @@ def use_card_on_grid(r, c):
 # 遊戲狀態切換輔助
 def start_game():
     global game_state
+    try:
+        pygame.mixer.music.stop()
+    except Exception:
+        pass
     reset_game()           # 重置資源與佈局
     game_state = GAME_PLAY # 進入遊戲（預設暫停狀態，等玩家按 Space/N）
 
@@ -2137,6 +2153,13 @@ def go_menu():
     global game_state, running
     running = False
     game_state = GAME_MENU
+    # ensure BGM resumes on returning to main menu
+    try:
+        if (not IS_WEB) and os.path.exists(BGM_PATH):
+            if not pygame.mixer.music.get_busy():
+                pygame.mixer.music.play(-1)
+    except Exception:
+        pass
 
 
 def handle_keys(ev):
