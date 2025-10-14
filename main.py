@@ -687,7 +687,8 @@ def loading_tick(message):
     # 不阻塞主線，只是畫面更新
 
 # 嘗試載入各怪物圖片與特效（失敗則退回程式繪圖）
-MONSTER_IMG = None   # slime/default
+MONSTER_IMG = None   # generic
+SLIME_IMG   = None
 RUNNER_IMG  = None
 BRUTE_IMG   = None
 BAT_IMG     = None
@@ -710,6 +711,9 @@ try:
     if GRUNT_USE_IMAGE and os.path.exists(GRUNT_IMG_PATH):
         _raw = pygame.image.load(GRUNT_IMG_PATH).convert_alpha()
         MONSTER_IMG = pygame.transform.smoothscale(_raw, (GRUNT_IMG_SIZE, GRUNT_IMG_SIZE))
+    if SLIME_USE_IMAGE and os.path.exists(SLIME_IMG_PATH):
+        _raw = pygame.image.load(SLIME_IMG_PATH).convert_alpha()
+        SLIME_IMG = pygame.transform.smoothscale(_raw, (SLIME_IMG_SIZE, SLIME_IMG_SIZE))
     if RUNNER_USE_IMAGE and os.path.exists(RUNNER_IMG_PATH):
         _raw = pygame.image.load(RUNNER_IMG_PATH).convert_alpha()
         RUNNER_IMG = pygame.transform.smoothscale(_raw, (RUNNER_IMG_SIZE, RUNNER_IMG_SIZE))
@@ -1373,6 +1377,14 @@ def draw_monster_icon(m):
         else:
             pygame.draw.circle(screen, color, (cx,cy), 16); pygame.draw.circle(screen, (15,19,32), (cx,cy), 16, 2)
             pygame.draw.circle(screen, (167,139,250), (cx,cy-2), 12); pygame.draw.circle(screen, (15,19,32), (cx,cy-2), 12, 2)
+    elif mtype == "slime":
+        if 'SLIME_IMG' in globals() and SLIME_IMG:
+            rect = SLIME_IMG.get_rect(center=(cx, cy))
+            screen.blit(SLIME_IMG, rect)
+        else:
+            r = GRUNT_RADIUS
+            pygame.draw.circle(screen, color, (cx, cy-2), r)
+            pygame.draw.circle(screen, (15,19,32), (cx, cy-2), r, GRUNT_OUTLINE_W)
     else:
         if MONSTER_IMG:
             rect = MONSTER_IMG.get_rect(center=(cx, cy))
