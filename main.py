@@ -2265,7 +2265,7 @@ def handle_click(pos):
 
 # 新增：右鍵手牌丟棄
 def handle_right_click(pos):
-    global selected_card, hand
+    global selected_card, hand, gold
     mx, my = pos
     # 只處理在遊戲中
     if game_state not in (GAME_PLAY,):
@@ -2275,6 +2275,10 @@ def handle_right_click(pos):
         if rct.collidepoint(mx, my):
             if 0 <= idx < len(hand):
                 discarded = hand.pop(idx)
+                # 丟棄回收：+1 金幣
+                gold += 1
+                add_notice("+ $1 丟棄回收", (255, 236, 140))
+                sfx(SFX_COIN)
                 # 調整已選索引
                 if selected_card is not None:
                     if selected_card == idx:
