@@ -1,3 +1,4 @@
+﻿# -*- coding:utf-8 -*-
 import pygame, sys, math, random, os
 from game_config import CREEP_CONFIG, get_wave_creeps
 
@@ -12,14 +13,9 @@ IS_WEB = (sys.platform == "emscripten")
 V0.0.3 新增：主選單
 V0.0.4 新增：抽卡機制
 V0.0.5 新增：地圖選擇
-V0.0.51 新增：錢幣卡片、機率調整
-V0.0.52 新增：多了幾個怪物
-V0.0.53 修正:怪物血量、攻擊力、速度調整
-V0.0.55 新增：隨機地圖、右鍵丟棄卡片獲得金幣
-V0.0.57 新增：新增背景BGM
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.57-Beta"
+TITLENAME = "塔路之戰-V0.0.58-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -1417,6 +1413,28 @@ def draw_monster_icon(m):
             pygame.draw.circle(screen, GRUNT_OUTLINE, (cx, cy-2), r, GRUNT_OUTLINE_W)
             mouth_rect = pygame.Rect(cx - r//2, cy - 2, r, r//2)
             pygame.draw.arc(screen, (255, 230, 180), mouth_rect, math.radians(20), math.radians(160), 2)
+        # health bar above monster
+    try:
+        hp = max(0, int(m.get('hp', 1)))
+        mxhp = int(m.get('max_hp', hp)) if m.get('max_hp') else hp
+        ratio = 0.0 if mxhp <= 0 else max(0.0, min(1.0, hp / float(mxhp)))
+
+        bar_w = int(CELL * 0.8)
+        bar_h = 5
+        bx = (x + CELL//2) - bar_w // 2
+        by = y - 6  # 在格子上方一點
+
+        # 背景
+        pygame.draw.rect(screen, (50, 50, 60), (bx, by, bar_w, bar_h))
+        # 前景
+        fill_w = int(bar_w * ratio)
+        if fill_w > 0:
+            pygame.draw.rect(screen, (80, 220, 120), (bx, by, fill_w, bar_h))
+        # 邊框
+        pygame.draw.rect(screen, (20, 20, 28), (bx, by, bar_w, bar_h), 1)
+    except Exception:
+        pass
+
 
 def draw_bullets():
     for b in bullets:
@@ -1647,7 +1665,7 @@ def spawn_logic():
             'type': kind,
             'r': float(sr), 'c': float(sc),
             'wp': 1, 'route': route,
-            'hp': hp_scaled, 'alive': True,
+            'hp': hp_scaled, 'max_hp': hp_scaled, 'alive': True,
             'speed': spd_scaled, 'reward': reward,
             'effects': {},
             'rewarded': False
