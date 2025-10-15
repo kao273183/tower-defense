@@ -895,6 +895,7 @@ try:
         w, h = _raw.get_width(), _raw.get_height()
         if w > LOGO_MAX_W:
             scale = LOGO_MAX_W / float(w)
+            print(int(w*scale), int(h*scale))
             LOGO_IMG = pygame.transform.smoothscale(_raw, (int(w*scale), int(h*scale)))
         else:
             LOGO_IMG = _raw
@@ -1351,14 +1352,15 @@ def draw_main_menu():
         screen.blit(BG_IMG, (0,0))
         # 蓋一層半透明深色讓文字更清楚
         dim = pygame.Surface((W,H), pygame.SRCALPHA); dim.fill((0,0,0,120)); screen.blit(dim,(0,0))
+    logo_offset = LEFT if LOGO_IMG else 0
     if LOGO_IMG:
         lr = LOGO_IMG.get_rect()
-        lr.midtop = (W//2, 40)
+        lr.topleft = (0, 80)
         screen.blit(LOGO_IMG, lr)
     title = BIG.render("塔路之戰 - 作者：Ethan.Kao", True, (250, 245, 255))
     subtitle = FONT.render("Tower Defense - 主選單", True, (190, 200, 220))
-    screen.blit(title, (W//2 - title.get_width()//2, 120))
-    screen.blit(subtitle, (W//2 - subtitle.get_width()//2, 160))
+    screen.blit(title, (300, 120))
+    screen.blit(subtitle, (380, 160))
     if IS_WEB:
         hint = FONT.render("(Web) 點擊開始後才會啟用音效，屬於瀏覽器限制", True, (200, 208, 224))
         screen.blit(hint, (W//2 - hint.get_width()//2, 180))
