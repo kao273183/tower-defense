@@ -652,6 +652,63 @@ screen = pygame.display.set_mode((W, H))
 #標題
 pygame.display.set_caption(TITLENAME)
 
+# 動態載入怪物圖片，支援 game_config.py 中新增的怪物設定
+MONSTER_SURFS = {}
+
+def _coerce_image_size(value):
+    """將尺寸設定轉為 (w, h) tuple，支援 int / float / list / tuple。"""
+    if isinstance(value, (tuple, list)):
+        if not value:
+            return None
+        if len(value) == 1:
+            side = int(value[0])
+            return (side, side)
+        return (int(value[0]), int(value[1]))
+    if isinstance(value, (int, float)):
+        side = int(value)
+        return (side, side)
+    return None
+
+def _load_monster_images_from_config():
+    """掃描 CREEP_CONFIG 與 game_config 常數，自動載入怪物圖片。"""
+    loaded = {}
+    if not isinstance(CREEP_CONFIG, dict):
+        return loaded
+    for mtype, cfg in CREEP_CONFIG.items():
+        name_upper = mtype.upper()
+        img_attr = f"{name_upper}_IMG"
+        existing = globals().get(img_attr)
+        if existing:
+            loaded[mtype] = existing
+            continue
+        use_flag = globals().get(f"{name_upper}_USE_IMAGE")
+        if use_flag is None:
+            use_flag = getattr(CFG, f"{name_upper}_USE_IMAGE", True)
+        if use_flag is False:
+            continue
+        img_path = cfg.get('image')
+        if not img_path:
+            img_path = globals().get(f"{name_upper}_IMG_PATH")
+        if not img_path:
+            img_path = getattr(CFG, f"{name_upper}_IMG_PATH", None)
+        if not img_path or not os.path.exists(img_path):
+            continue
+        try:
+            surf = pygame.image.load(img_path).convert_alpha()
+        except Exception:
+            continue
+        size_val = cfg.get('image_size')
+        if size_val is None:
+            size_val = globals().get(f"{name_upper}_IMG_SIZE")
+        if size_val is None:
+            size_val = getattr(CFG, f"{name_upper}_IMG_SIZE", None)
+        target_size = _coerce_image_size(size_val)
+        if target_size:
+            surf = pygame.transform.smoothscale(surf, target_size)
+        loaded[mtype] = surf
+        globals()[img_attr] = surf
+    return loaded
+
 # === Loading Screen Helpers ===
 LOADING = True
 LOAD_STEP = 0
@@ -696,8 +753,9 @@ SLIME_IMG   = None
 RUNNER_IMG  = None
 BRUTE_IMG   = None
 BAT_IMG     = None
+GIANT_IMG   = None
 BOSS_IMG    = None
-BOSS_IMG    = None
+SANTELMO_IMG = None
 BLAST_IMG   = None   # 擊中圖片
 DEAD_IMG    = None   # 死亡圖片
 COIN_IMG    = None   # +金幣 圖示
@@ -730,6 +788,20 @@ try:
     if BOSS_USE_IMAGE and os.path.exists(BOSS_IMG_PATH):
         _raw = pygame.image.load(BOSS_IMG_PATH).convert_alpha()
         BOSS_IMG = pygame.transform.smoothscale(_raw, (BOSS_IMG_SIZE, BOSS_IMG_SIZE))
+    for key, surf in (
+        ('slime', SLIME_IMG),
+        ('runner', RUNNER_IMG),
+        ('brute', BRUTE_IMG),
+        ('bat', BAT_IMG),
+        ('boss', BOSS_IMG),
+    ):
+        if surf:
+            MONSTER_SURFS[key] = surf
+    if MONSTER_IMG:
+        MONSTER_SURFS.setdefault('grunt', MONSTER_IMG)
+    extra_monster_imgs = _load_monster_images_from_config()
+    if extra_monster_imgs:
+        MONSTER_SURFS.update({k: v for k, v in extra_monster_imgs.items() if v})
     LOAD_STEP = 1
     loading_tick("載入怪物素材…")
     if HIT_USE_IMAGE and os.path.exists(HIT_IMG_PATH):
@@ -1396,6 +1468,11 @@ def draw_monster_icon(m):
     x,y = grid_to_px(int(m['r']), int(m['c']))
     cx, cy = x + CELL//2, y + CELL//2
     color = CREEP.get(mtype, {}).get('color', (200, 200, 200))
+    img = MONSTER_SURFS.get(mtype)
+    if img:
+        rect = img.get_rect(center=(cx, cy))
+        screen.blit(img, rect)
+        return
     if mtype == "runner":
         if RUNNER_IMG:
             rect = RUNNER_IMG.get_rect(center=(cx, cy))
