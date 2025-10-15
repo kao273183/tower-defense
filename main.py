@@ -16,7 +16,7 @@ V0.0.5 新增：地圖選擇
 V0.0.6 新增：出怪口隨機出現
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.65-Beta"
+TITLENAME = "塔路之戰-V0.0.66-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -158,7 +158,7 @@ def load_map_from_file():
 # === 卡片系統 ===
 CARD_COST_DRAW = 5       # 抽卡花費
 CARD_COST_BUILD = 10     # Basic_Tower 建置花費（與 BUILD_COST 保持一致或直接以此為主）
-CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade", "1money", "2money", "3money"]
+CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade", "1money", "2money", "3money", "lumberyard"]
 # 卡面圖與費用（使用你的素材）
 CARD_IMAGES = {
     "basic":   "assets/pic/Basic_Tower.png",
@@ -171,6 +171,7 @@ CARD_IMAGES = {
     "2money": "assets/pic/money2.png",
     "3money": "assets/pic/money3.png",
     "bg":      "assets/pic/BgCard.png",        # 卡底背景
+    "lumberyard": "assets/pic/lumberyardCard.png",#伐物場
 }
 
 # 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
@@ -187,6 +188,7 @@ CARD_COSTS = {
     "1money": 0,
     "2money": 0,
     "3money": 0,
+    "lumberyard": 0,
 }
 
 CARD_RATES_DEFAULT = [
@@ -240,6 +242,7 @@ def _card_display_name(name):
         '1money': '新增金幣1元',
         '2money': '新增金幣2元',
         '3money': '新增金幣3元',
+        'lumberyard':'伐木場'
     }
     return mapping.get(name, name)
 # === 卡片圖快取與縮放 ===
@@ -405,7 +408,8 @@ FIRE_TOWER_IMG_PATH  = "assets/pic/firetower.png"
 WATER_TOWER_IMG_PATH = "assets/pic/watertower.png"
 LAND_TOWER_IMG_PATH  = "assets/pic/landtower.png"
 WIND_TOWER_IMG_PATH  = "assets/pic/windtower.png"
-
+# --- 伐木場 ---
+LUMBERYARD_IMG_PATH = "assets/pic/lumberyard.png"
 # --- 升級特效（LEVEL UP） ---
 LEVELUP_USE_IMAGE = True
 LEVELUP_IMG_PATH  = "assets/pic/level-up.png"
@@ -867,6 +871,10 @@ try:
         _raw = pygame.image.load(WIND_TOWER_IMG_PATH).convert_alpha()
         WIND_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
 
+    #伐木場
+    if os.path.exists(LUMBERYARD_IMG_PATH):
+        _raw = pygame.image.load(LUMBERYARD_IMG_PATH).convert_alpha()
+        LUMBERYARD_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
     LOAD_STEP = 5
     loading_tick("載入地圖與介面圖示…")
 
@@ -1124,6 +1132,7 @@ for _cname, _cfg in CREEP_CONFIG.items():
 
 running=False; speed=1; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
 towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[];effects = []
+lumberyards = set()
 
 ids={'tower':1,'creep':1}
 wave_spawn_queue=[]; SPAWN_INTERVAL=60
@@ -1384,6 +1393,11 @@ def draw_map():
                 else:  # 2 = 牆/障礙（含主堡格視覺顯示）
                     s.fill(BLOCK)
                 screen.blit(s, rect)
+
+            # 覆蓋伐木場圖示
+            if (r, c) in lumberyards and LUMBERYARD_IMG:
+                img_rect = LUMBERYARD_IMG.get_rect(center=(x + CELL//2, y + CELL//2))
+                screen.blit(LUMBERYARD_IMG, img_rect)
 
             # 覆蓋主堡 / 牆壁圖示
             if (r == CASTLE_ROW and c == CASTLE_COL) and CASTLE_IMG:
@@ -2084,10 +2098,12 @@ def next_wave():
     _spawn_rot = 0
 
 def reset_game():
-    global running, tick, gold, life, wave, wave_incoming, spawn_counter, towers, creeps, bullets, hits, corpses, gains, upgrades
+    global running, tick, gold, life, wave, wave_incoming, spawn_counter
+    global towers, creeps, bullets, hits, corpses, gains, upgrades, lumberyards
     running=False; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+    lumberyards.clear()
     globals()['current_spawns'] = None
     globals()['next_spawns'] = None
     globals()['_spawn_rot'] = 0
@@ -2222,7 +2238,7 @@ def draw_effects():
 
 def use_card_on_grid(r, c):
     """根據手牌第一張(或選中的)來建塔/升級塔。"""
-    global hand, gold, selected_card
+    global hand, gold, selected_card, lumberyards
     if not hand:
         add_notice("沒有手牌可用", (255,120,120))
         return
@@ -2315,6 +2331,36 @@ def use_card_on_grid(r, c):
             add_notice(f"- ${spend} 使用『{card}』卡 → {new_type} 塔", (170,220,255))
             selected_card = None
             return
+
+    # 伐木場卡：將區塊標記為不可建造
+    if card == "lumberyard":
+        if gold < CARD_COST_DRAW:
+            add_notice(f"金幣不足：建造伐木場需要 ${CARD_COST_DRAW}", (255,120,120))
+            return
+        if not in_bounds(r, c):
+            add_notice("超出地圖範圍", (255,120,120))
+            return
+        if any(t['r'] == r and t['c'] == c for t in towers):
+            add_notice("此處已有防禦塔，無法建造伐木場", (255,120,120))
+            return
+        tile = MAP[r][c]
+        if tile == 1:
+            add_notice("此處是道路，無法建立伐木場", (255,120,120))
+            return
+        if tile == 2:
+            add_notice("此處已有障礙物", (255,120,120))
+            return
+        if tile == 3 and (r, c) in lumberyards:
+            add_notice("此格已建有伐木場", (255,180,120))
+            return
+        gold -= CARD_COST_DRAW
+        hand.pop(card_index)
+        selected_card = None
+        if tile != 3:
+            MAP[r][c] = 3
+        lumberyards.add((r, c))
+        add_notice("伐木場建造完成，此處不可再建塔", (170,220,255))
+        return
 
     add_notice("沒有選到已建塔的格子可升級", (255,120,120))
 #-----------

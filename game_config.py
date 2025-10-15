@@ -49,9 +49,10 @@ CARD_RATES = [
     {'type': 'land',    'weight': 2},
     {'type': 'wind',    'weight': 2},
     {'type': 'upgrade', 'weight': 2},
+    {'type': 'lumberyard', 'weight': 10},#伐木場
     {'type': '1money', 'weight': 20},#金幣卡
-    {'type': '2money', 'weight': 15},#金幣卡
-    {'type': '3money', 'weight': 10},#金幣卡
+    {'type': '2money', 'weight': 10},#金幣卡
+    {'type': '3money', 'weight': 5},#金幣卡
 ]
 
 # ===== 塔數值（可獨立調平衡）====# game_config.py
