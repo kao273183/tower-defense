@@ -261,7 +261,7 @@ CREEP_CONFIG = {
         "name": "鬼火",
         "hp": 6,
         "speed": 0.01,
-        "reward": 1,
+        "reward": 2,
         "attack": 2,
         "color": (255, 34, 63),
         "image": SANTELMO_IMG_PATH
@@ -270,7 +270,7 @@ CREEP_CONFIG = {
         "name": "南瓜怪",
         "hp": 7,
         "speed": 0.02,
-        "reward": 1,
+        "reward": 2,
         "attack": 2,
         "color": (255, 137, 34),
         "image": PUMPKIN_IMG_PATH
