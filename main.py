@@ -8,12 +8,13 @@ import game_config as CFG
 IS_WEB = (sys.platform == "emscripten")
 
 
-# 《塔路之戰》 Pygame 版 v0.0.5 
+# 《塔路之戰》 Pygame 版 v0.0.7 
 """
 V0.0.3 新增：主選單
 V0.0.4 新增：抽卡機制
 V0.0.5 新增：地圖選擇
 V0.0.6 新增：出怪口隨機出現
+V0.0.7 新增：伐木場機制
 未來規劃
 """
 TITLENAME = "塔路之戰-V0.0.7-Beta"
