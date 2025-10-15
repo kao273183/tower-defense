@@ -16,7 +16,7 @@ V0.0.5 新增：地圖選擇
 V0.0.6 新增：出怪口隨機出現
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.64-Beta"
+TITLENAME = "塔路之戰-V0.0.65-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -1677,6 +1677,22 @@ def reward_for(kind):
     base = CREEP.get(kind, {}).get('reward', 1)
     mult = 1.01 ** max(0, int(wave))  # 與血量一致：用 1.01 ** wave
     return max(1, int(round(base * mult)))
+
+def creep_attack_value(creep):
+    """回傳怪物攻擊力（優先使用實體值，其次讀取設定表）。"""
+    atk = creep.get('attack')
+    try:
+        atk = int(atk)
+    except (TypeError, ValueError):
+        atk = None
+    if atk is None:
+        base = CREEP.get(creep.get('type', ''), {}).get('attack')
+        try:
+            atk = int(base)
+        except (TypeError, ValueError):
+            atk = 1
+    return max(0, atk)
+
 def draw_upgrades():
     # 升級特效：在塔的位置顯示 LevelUp 圖示，往上飄並淡出
     alive = []
@@ -1771,10 +1787,23 @@ def spawn_logic():
         kind = wave_spawn_queue.pop(0)
 
         # 從設定讀取基礎屬性（缺就用舊 CREEP 值當備援）
-        cfg = CREEP_CONFIG.get(kind, {})
-        base_hp    = int(cfg.get('hp',     CREEP.get(kind, {}).get('hp', 10)))
-        base_speed = float(cfg.get('speed', CREEP.get(kind, {}).get('speed', 0.02)))
-        reward     = int(cfg.get('reward', CREEP.get(kind, {}).get('reward', 1)))
+        cfg = CREEP.get(kind, {}) if isinstance(CREEP, dict) else {}
+        try:
+            base_hp = int(cfg.get('hp', 10))
+        except (TypeError, ValueError):
+            base_hp = 10
+        try:
+            base_speed = float(cfg.get('speed', 0.02))
+        except (TypeError, ValueError):
+            base_speed = 0.02
+        try:
+            reward = int(cfg.get('reward', 1))
+        except (TypeError, ValueError):
+            reward = 1
+        try:
+            attack = int(cfg.get('attack', 1))
+        except (TypeError, ValueError):
+            attack = 1
 
         if current_spawns:
             sr, sc = current_spawns[_spawn_rot % len(current_spawns)]
@@ -1794,6 +1823,7 @@ def spawn_logic():
             'wp': 1, 'route': route,
             'hp': hp_scaled, 'max_hp': hp_scaled, 'alive': True,
             'speed': spd_scaled, 'reward': reward,
+            'attack': attack,
             'effects': {},
             'rewarded': False
         })
@@ -1857,7 +1887,7 @@ def move_creeps():
         if not route or wp >= len(route):
             m['r'] -= m['speed']
             if int(m['r']) <= CASTLE_ROW:
-                dmg = (3 if m['type'] == 'boss' else 1)
+                dmg = creep_attack_value(m)
                 CASTLE['hp'] = max(0, CASTLE['hp'] - dmg)
                 add_notice(f"主堡受攻擊！-{dmg} HP", (255,100,100))
                 if CASTLE['hp'] <= 0:
@@ -1876,7 +1906,7 @@ def move_creeps():
             m['r'], m['c'] = float(tr), float(tc)
             m['wp'] = wp + 1
             if m['wp'] >= len(route):  # 到達終點（城堡）
-                dmg = (3 if m['type'] == 'boss' else 1)
+                dmg = creep_attack_value(m)
                 CASTLE['hp'] = max(0, CASTLE['hp'] - dmg)
                 add_notice(f"主堡受攻擊！-{dmg} HP", (255,100,100))
                 if CASTLE['hp'] <= 0:
