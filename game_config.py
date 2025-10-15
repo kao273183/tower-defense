@@ -159,7 +159,7 @@ ARROW_IMG_PATH = "assets/pic/up-arrow.png"
 ARROW_IMG_SIZE = 28
 
 # 主堡 / 牆壁
-CASTLE_IMG_PATH = "assets/pic/castle.png"
+CASTLE_IMG_PATH = "assets/pic/halloween_castle.png"
 WALL_IMG_PATH   = "assets/pic/wall.png"
 CASTLE_IMG_SIZE = 48
 WALL_IMG_SIZE   = 40
