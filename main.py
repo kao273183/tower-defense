@@ -16,7 +16,7 @@ V0.0.5 新增：地圖選擇
 V0.0.6 新增：出怪口隨機出現
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.6-Beta"
+TITLENAME = "塔路之戰-V0.0.61-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -1330,6 +1330,7 @@ def draw_tower_icon(t):
 
     # 若有元素，優先用對應的元素圖示覆蓋顯示
     elem = t.get('element')
+    elem_img = None
     if elem:
         elem_img = {
             'fire':  FIRE_TOWER_IMG,
@@ -1337,40 +1338,55 @@ def draw_tower_icon(t):
             'land':  LAND_TOWER_IMG,
             'wind':  WIND_TOWER_IMG,
         }.get(elem)
-        if elem_img:
-            rect = elem_img.get_rect(center=(cx, cy))
-            screen.blit(elem_img, rect)
-            return
 
-    if ttype == 'rocket':
+    if elem_img:
+        rect = elem_img.get_rect(center=(cx, cy))
+        screen.blit(elem_img, rect)
+    elif ttype == 'rocket':
         if 'ROCKET_TOWER_IMG' in globals() and ROCKET_TOWER_IMG:
             rect = ROCKET_TOWER_IMG.get_rect(center=(cx, cy))
             screen.blit(ROCKET_TOWER_IMG, rect)
         else:
             pygame.draw.circle(screen, (220,80,60), (cx, cy), CELL//2 - 6)
-        return
     else:
         # arrow：先嘗試用等級圖示，否則退回程式繪圖
         img = TOWER_IMGS.get(level)
         if img:
             rect = img.get_rect(center=(cx, cy))
             screen.blit(img, rect)
-            return
-        # 備援：原本程式繪圖
-        body_h = 18 if level<2 else 22
-        body_y = y + CELL//2 - body_h//2 + (-4 if level>=2 else 0)
-        rect = pygame.Rect(cx-14, body_y, 28, body_h)
-        pygame.draw.rect(screen, (91,100,116), rect, border_radius=6)
-        pygame.draw.rect(screen, (25,30,43), rect, 2, border_radius=6)
-        pygame.draw.line(screen, (67,74,90), (rect.left, rect.centery), (rect.right, rect.centery), 2)
-        if level>=2:
-            top = pygame.Rect(cx-14, rect.top-10, 28, 10)
-            pygame.draw.rect(screen, (91,100,116), top); pygame.draw.rect(screen, (25,30,43), top, 2)
-            for i in range(4):
-                cren = pygame.Rect(cx-12 + i*6, rect.top-14, 4, 6)
-                pygame.draw.rect(screen, (91,100,116), cren); pygame.draw.rect(screen, (25,30,43), cren, 2)
-        pts = [(cx, y+6), (cx-16, rect.top+2), (cx+16, rect.top+2)]
-        pygame.draw.polygon(screen, (230,127,57), pts); pygame.draw.polygon(screen, (25,30,43), pts, 2)
+        else:
+            # 備援：原本程式繪圖
+            body_h = 18 if level<2 else 22
+            body_y = y + CELL//2 - body_h//2 + (-4 if level>=2 else 0)
+            rect = pygame.Rect(cx-14, body_y, 28, body_h)
+            pygame.draw.rect(screen, (91,100,116), rect, border_radius=6)
+            pygame.draw.rect(screen, (25,30,43), rect, 2, border_radius=6)
+            pygame.draw.line(screen, (67,74,90), (rect.left, rect.centery), (rect.right, rect.centery), 2)
+            if level>=2:
+                top = pygame.Rect(cx-14, rect.top-10, 28, 10)
+                pygame.draw.rect(screen, (91,100,116), top); pygame.draw.rect(screen, (25,30,43), top, 2)
+                for i in range(4):
+                    cren = pygame.Rect(cx-12 + i*6, rect.top-14, 4, 6)
+                    pygame.draw.rect(screen, (91,100,116), cren); pygame.draw.rect(screen, (25,30,43), cren, 2)
+            pts = [(cx, y+6), (cx-16, rect.top+2), (cx+16, rect.top+2)]
+            pygame.draw.polygon(screen, (230,127,57), pts); pygame.draw.polygon(screen, (25,30,43), pts, 2)
+
+    # 顯示等級標籤在塔下方
+    label_text = f"Lv{level}"
+    label_surface = SMALL.render(label_text, True, (255, 255, 210))
+    text_w, text_h = label_surface.get_width(), label_surface.get_height()
+    text_x = cx - text_w // 2
+    min_x = x + 2
+    max_x = x + CELL - text_w - 2
+    text_x = min(max(text_x, min_x), max_x)
+    text_y = y + CELL - text_h - 3
+    if text_y < y + 2:
+        text_y = y + 2
+    bg_rect = pygame.Rect(text_x - 4, text_y - 2, text_w + 8, text_h + 4)
+    bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+    bg_surface.fill((15, 19, 32, 160))
+    screen.blit(bg_surface, bg_rect.topleft)
+    screen.blit(label_surface, (text_x, text_y))
 
 def draw_monster_icon(m):
     mtype = m.get('type', 'slime')
@@ -2538,4 +2554,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
