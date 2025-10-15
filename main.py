@@ -756,6 +756,7 @@ BAT_IMG     = None
 GIANT_IMG   = None
 BOSS_IMG    = None
 SANTELMO_IMG = None
+GREY_IMG    = None
 BLAST_IMG   = None   # 擊中圖片
 DEAD_IMG    = None   # 死亡圖片
 COIN_IMG    = None   # +金幣 圖示
@@ -845,6 +846,7 @@ try:
         PAUSE_IMG = pygame.transform.smoothscale(_raw, (STATUS_ICON_SIZE, STATUS_ICON_SIZE))
     if os.path.exists(GREY_IMG_PATH):
         _raw = pygame.image.load(GREY_IMG_PATH).convert_alpha()
+        GREY_IMG = pygame.transform.smoothscale(_raw, (CELL, CELL))
     # 分支塔圖
     if os.path.exists(ROCKET_TOWER_IMG_PATH):
         _raw = pygame.image.load(ROCKET_TOWER_IMG_PATH).convert_alpha()
@@ -1368,15 +1370,19 @@ def draw_map():
             s = pygame.Surface((CELL, CELL), pygame.SRCALPHA)
 
             # 先畫底色：依 MAP 值決定
-            if MAP[r][c] == 1:
-                s.fill(ROAD)
-            elif MAP[r][c] == 0:
-                s.fill(LAND)
-            elif MAP[r][c] == 3:
-                s.fill(GREY)
-            else:  # 2 = 牆/障礙（含主堡格視覺顯示）
-                s.fill(BLOCK)
-            screen.blit(s, rect)
+            tile = MAP[r][c]
+            if tile == 3 and GREY_IMG:
+                screen.blit(GREY_IMG, rect)
+            else:
+                if tile == 1:
+                    s.fill(ROAD)
+                elif tile == 0:
+                    s.fill(LAND)
+                elif tile == 3:
+                    s.fill(GREY)
+                else:  # 2 = 牆/障礙（含主堡格視覺顯示）
+                    s.fill(BLOCK)
+                screen.blit(s, rect)
 
             # 覆蓋主堡 / 牆壁圖示
             if (r == CASTLE_ROW and c == CASTLE_COL) and CASTLE_IMG:
