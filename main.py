@@ -328,6 +328,9 @@ BAT_IMG_SIZE     = 32
 GIANT_USE_IMAGE  = True
 GIANT_IMG_PATH   = "assets/pic/giant.png"
 GIANT_IMG_SIZE   = 32
+SANTELMO_USE_IMAGE = True
+SANTELMO_IMG_PATH = "assets/pic/santelmo.png"
+SANTELMO_IMG_SIZE = 32
 # --- 擊中效果（命中時的爆炸/特效）---
 HIT_USE_IMAGE = True
 HIT_IMG_PATH  = "assets/pic/blast.png"

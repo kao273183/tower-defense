@@ -197,6 +197,9 @@ BAT_IMG_SIZE     = 32
 GIANT_USE_IMAGE  = True
 GIANT_IMG_PATH   = "assets/pic/giant.png"
 GIANT_IMG_SIZE   = 32
+SANTELMO_USE_IMAGE = True
+SANTELMO_IMG_PATH = "assets/pic/santelmo.png"
+SANTELMO_IMG_SIZE = 32
 #BOSS
 BOSS_USE_IMAGE   = True
 BOSS_IMG_PATH    = "assets/pic/boss.png"
@@ -249,6 +252,15 @@ CREEP_CONFIG = {
         "color": (120, 255, 120),
         "image": SLIME_IMG_PATH
     },
+    "santelmo": {
+        "name": "鬼火",
+        "hp": 6,
+        "speed": 0.01,
+        "reward": 1,
+        "attack": 2,
+        "color": (255, 34, 63),
+        "image": SANTELMO_IMG_PATH
+    },
     "runner": {
         "name": "鬼魂",
         "hp": 5,
@@ -287,7 +299,7 @@ CREEP_CONFIG = {
 }
 
 # 波次配置（每10波出現 Boss）
-def get_wave_creeps(wave_num: int):
+"""def get_wave_creeps(wave_num: int):
     creeps = []
     if wave_num % 10 == 0:
         creeps.append({"type": "boss", "count": 1})
@@ -296,7 +308,7 @@ def get_wave_creeps(wave_num: int):
         for _ in range(3 + wave_num // 2):
             ctype = random.choice(base)
             creeps.append({"type": ctype, "count": 1})
-    return creeps
+    return creeps"""
 
 import random
 
@@ -314,14 +326,14 @@ def get_wave_creeps(wave: int):
     try:
         all_types = list(CREEP_CONFIG.keys())
     except NameError:
-        all_types = ['slime', 'runner', 'bat', 'giant', 'boss']
+        all_types = ['slime','santelmo', 'runner', 'bat', 'giant', 'boss']
 
     non_boss = [k for k in all_types if k != 'boss']
     if not non_boss:
         non_boss = ['slime']
 
     # 這一波的總怪數 10~20
-    total = random.randint(10, 20)
+    total = random.randint(10, 30)
     plan = []
 
     # 將 total 拆分成隨機群組（2~5隻），並分配種類
@@ -333,9 +345,10 @@ def get_wave_creeps(wave: int):
         kind = random.choice(non_boss)
         plan.append({'type': kind, 'count': chunk})
         remain -= chunk
+    print(f"Wave {wave}: {plan}")
 
     # 35% 機率將其中一組替換為較強怪物（runner/bat/giant）
-    stronger_pool = [k for k in non_boss if k in ('runner', 'bat', 'giant')]
+    stronger_pool = [k for k in non_boss if k in ('runner','santelmo', 'bat', 'giant')]
     if stronger_pool and len(plan) >= 2 and random.random() < 0.35:
         idx = random.randrange(len(plan))
         plan[idx]['type'] = random.choice(stronger_pool)
