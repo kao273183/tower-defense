@@ -16,7 +16,7 @@ V0.0.5 新增：地圖選擇
 V0.0.6 新增：出怪口隨機出現
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.66-Beta"
+TITLENAME = "塔路之戰-V0.0.7-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -159,6 +159,11 @@ def load_map_from_file():
 CARD_COST_DRAW = 5       # 抽卡花費
 CARD_COST_BUILD = 10     # Basic_Tower 建置花費（與 BUILD_COST 保持一致或直接以此為主）
 CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade", "1money", "2money", "3money", "lumberyard"]
+# 伐木場資源與修復設定（可於 game_config.py 覆蓋）
+WOOD_PER_SECOND_PER_YARD = getattr(CFG, 'WOOD_PER_SECOND_PER_YARD', 1)
+WOOD_REPAIR_COST = getattr(CFG, 'WOOD_REPAIR_COST', 5)          # 花費木材數量
+WOOD_REPAIR_HP = getattr(CFG, 'WOOD_REPAIR_HP', 10)              # 單次修復 HP 量
+WOOD_REPAIR_LIMIT_PER_CLICK = getattr(CFG, 'WOOD_REPAIR_LIMIT_PER_CLICK', 1)  # 單次修復可自訂倍數
 # 卡面圖與費用（使用你的素材）
 CARD_IMAGES = {
     "basic":   "assets/pic/Basic_Tower.png",
@@ -290,6 +295,7 @@ hand = []                # 目前手牌（最多可先不限制或自行加上�
 selected_card = None     # 被選取的手牌索引或名稱
 MAX_HAND_CARDS = 5
 HAND_UI_RECTS = []  # 每幀重建：[(rect, index)]
+WOOD_REPAIR_BTN_RECT = None
 #主堡設定
 CASTLE = {
     'hp': 50,      # 當前血量
@@ -1133,6 +1139,9 @@ for _cname, _cfg in CREEP_CONFIG.items():
 running=False; speed=1; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
 towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[];effects = []
 lumberyards = set()
+lumberyard_blocked = set()
+wood_stock = 0
+_wood_timer_acc = 0.0
 
 ids={'tower':1,'creep':1}
 wave_spawn_queue=[]; SPAWN_INTERVAL=60
@@ -1156,12 +1165,48 @@ def choose_wave_spawns():
     k = min(k, n)
     return random.sample(SPAWNS, k)
 
+def update_lumberyards(dt_ms):
+    """依據時間流逝累積伐木場產出的木材。"""
+    global _wood_timer_acc, wood_stock
+    if not lumberyards:
+        return
+    if WOOD_PER_SECOND_PER_YARD <= 0:
+        return
+    dt = max(0.0, float(dt_ms) / 1500.0)
+    _wood_timer_acc += len(lumberyards) * WOOD_PER_SECOND_PER_YARD * dt
+    gained = int(_wood_timer_acc)
+    if gained >= 1:
+        wood_stock += gained
+        _wood_timer_acc -= gained
+
 def draw_panel():
+    global WOOD_REPAIR_BTN_RECT
     pygame.draw.rect(screen, PANEL, (0,0,W,TOP))
-    txt = FONT.render(f"$ {gold}    Wave {wave}{' (spawning)' if wave_incoming else ''}    Speed x{speed}", True, TEXT)
+    txt = FONT.render(f"$ {gold}  Wave {wave}{' (spawning)' if wave_incoming else ''}    Speed x{speed}", True, TEXT)
     screen.blit(txt, (16, 10))
-    tips = FONT.render("C升級主堡 S回收｜Space暫停/開始｜N下一波｜R重置｜1/2/3速度", True, TEXT)
+    tips = FONT.render("C 升級主堡 S 回收｜F 修復主堡｜Space暫停/開始｜N下一波｜R重置｜1/2/3速度", True, TEXT)
     screen.blit(tips, (16, TOP-28))
+    wood_str = f"木材: {wood_stock}"
+    wood_label = FONT.render(wood_str, True, TEXT)
+    #wood_x = W - wood_label.get_width() - 16
+    screen.blit(wood_label, (16, 120))
+    # 修復按鈕
+    if WOOD_REPAIR_COST > 0 and WOOD_REPAIR_HP > 0:
+        btn_w, btn_h = 150, 28
+        btn_x = 16 
+        btn_y = 150
+        #btn_x = W - btn_w - 16
+        #btn_y = 10 + wood_label.get_height() + 6
+        WOOD_REPAIR_BTN_RECT = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+        can_repair = (wood_stock >= WOOD_REPAIR_COST) and (CASTLE['hp'] < CASTLE['max_hp'])
+        bg_color = (48, 74, 110) if can_repair else (30, 40, 58)
+        pygame.draw.rect(screen, bg_color, WOOD_REPAIR_BTN_RECT, border_radius=6)
+        border_color = (120, 190, 255) if can_repair else (70, 90, 120)
+        pygame.draw.rect(screen, border_color, WOOD_REPAIR_BTN_RECT, 2, border_radius=6)
+        label = SMALL.render(f"修復 +{WOOD_REPAIR_HP}HP (-{WOOD_REPAIR_COST}木)", True, (235, 242, 255))
+        screen.blit(label, (btn_x + (btn_w - label.get_width())//2, btn_y + (btn_h - label.get_height())//2))
+    else:
+        WOOD_REPAIR_BTN_RECT = None
     if not wave_incoming and next_spawns:
         nr, nc = (next_spawns[0] if next_spawns else (0,0))
         info = FONT.render(f"＊＊下一波出口：怪物 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
@@ -1395,9 +1440,11 @@ def draw_map():
                 screen.blit(s, rect)
 
             # 覆蓋伐木場圖示
-            if (r, c) in lumberyards and LUMBERYARD_IMG:
-                img_rect = LUMBERYARD_IMG.get_rect(center=(x + CELL//2, y + CELL//2))
-                screen.blit(LUMBERYARD_IMG, img_rect)
+            if (r, c) in lumberyards:
+                yard_img = LUMBERYARD_IMG
+                if yard_img:
+                    img_rect = yard_img.get_rect(center=(x + CELL//2, y + CELL//2))
+                    screen.blit(yard_img, img_rect)
 
             # 覆蓋主堡 / 牆壁圖示
             if (r == CASTLE_ROW and c == CASTLE_COL) and CASTLE_IMG:
@@ -1684,6 +1731,41 @@ def upgrade_castle():
     CASTLE['hp'] = CASTLE['max_hp']  # 回滿血
     CASTLE['upgrade_cost'] = int(cost * 1.5)  # 每次升級成本上升
     add_notice(f"主堡升級至 Lv{CASTLE['level']}！血量上限 {CASTLE['max_hp']}", (180,235,160))
+    sfx(SFX_LEVELUP)
+
+def repair_castle_with_wood(mult=1):
+    """使用木材修復主堡血量。"""
+    global wood_stock
+    if WOOD_REPAIR_COST <= 0 or WOOD_REPAIR_HP <= 0:
+        add_notice("伐木場修復參數未設定，無法修復", (255,120,120))
+        return
+    missing = CASTLE['max_hp'] - CASTLE['hp']
+    if missing <= 0:
+        add_notice("主堡血量已滿", (160,235,170))
+        return
+    try:
+        mult = int(mult)
+    except (TypeError, ValueError):
+        mult = 1
+    mult = max(1, min(mult, WOOD_REPAIR_LIMIT_PER_CLICK))
+    max_by_missing = max(1, math.ceil(missing / float(WOOD_REPAIR_HP)))
+    chunks = min(mult, max_by_missing)
+    max_by_wood = wood_stock // WOOD_REPAIR_COST
+    if max_by_wood <= 0:
+        add_notice(f"木材不足：修復需要 {WOOD_REPAIR_COST} 木材", (255,120,120))
+        return
+    chunks = min(chunks, max_by_wood)
+    if chunks <= 0:
+        add_notice(f"木材不足：修復需要 {WOOD_REPAIR_COST} 木材", (255,120,120))
+        return
+    cost = chunks * WOOD_REPAIR_COST
+    heal = chunks * WOOD_REPAIR_HP
+    heal = min(heal, missing)
+    spent_chunks = math.ceil(heal / float(WOOD_REPAIR_HP))
+    cost = spent_chunks * WOOD_REPAIR_COST
+    wood_stock -= cost
+    CASTLE['hp'] = min(CASTLE['hp'] + heal, CASTLE['max_hp'])
+    add_notice(f"使用木材修復 +{heal} HP（消耗 {cost} 木材）", (170, 220, 255))
     sfx(SFX_LEVELUP)
 # 每一波擊殺金幣提升：比上一波多 1%
 # 例：第 1 波=1.01x，第 10 波≈1.1046x
@@ -2099,11 +2181,18 @@ def next_wave():
 
 def reset_game():
     global running, tick, gold, life, wave, wave_incoming, spawn_counter
-    global towers, creeps, bullets, hits, corpses, gains, upgrades, lumberyards
+    global towers, creeps, bullets, hits, corpses, gains, upgrades, lumberyards, lumberyard_blocked
+    global wood_stock, _wood_timer_acc
     running=False; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+    for r, c in list(lumberyard_blocked):
+        if 0 <= r < ROWS and 0 <= c < COLS and MAP[r][c] == 3:
+            MAP[r][c] = 0
+    lumberyard_blocked.clear()
     lumberyards.clear()
+    wood_stock = 0
+    _wood_timer_acc = 0.0
     globals()['current_spawns'] = None
     globals()['next_spawns'] = None
     globals()['_spawn_rot'] = 0
@@ -2358,6 +2447,7 @@ def use_card_on_grid(r, c):
         selected_card = None
         if tile != 3:
             MAP[r][c] = 3
+            lumberyard_blocked.add((r, c))
         lumberyards.add((r, c))
         add_notice("伐木場建造完成，此處不可再建塔", (170,220,255))
         return
@@ -2475,6 +2565,10 @@ def handle_keys(ev):
         upgrade_castle()
     elif ev.key == pygame.K_d:
         draw_card()
+    elif ev.key == pygame.K_f:
+        mods = pygame.key.get_mods()
+        mult = WOOD_REPAIR_LIMIT_PER_CLICK if (mods & pygame.KMOD_SHIFT) else 1
+        repair_castle_with_wood(mult)
 
 def handle_click(pos):
     global sel, game_state, selected_card, hand, gold, effects
@@ -2539,6 +2633,13 @@ def handle_click(pos):
     if now - _last_click_ts < CLICK_DEBOUNCE_MS:
         return
     _last_click_ts = now
+
+    if WOOD_REPAIR_BTN_RECT and WOOD_REPAIR_BTN_RECT.collidepoint(mx, my):
+        sfx(SFX_CLICK)
+        mods = pygame.key.get_mods()
+        mult = WOOD_REPAIR_LIMIT_PER_CLICK if (mods & pygame.KMOD_SHIFT) else 1
+        repair_castle_with_wood(mult)
+        return
 
     # 先判斷是否點到手牌列（選牌）
     for rct, idx in HAND_UI_RECTS:
@@ -2723,7 +2824,10 @@ def main():
         if life<=0:
             s = pygame.Surface((W,H), pygame.SRCALPHA); s.fill((0,0,0,160)); screen.blit(s,(0,0))
             txt = BIG.render("Game Over - 按 R 重來", True, TEXT); rect = txt.get_rect(center=(W//2, H//2)); screen.blit(txt, rect)
-        pygame.display.flip(); clock.tick(60)
+        pygame.display.flip()
+        dt = clock.tick(60)
+        if running and life>0:
+            update_lumberyards(dt)
 
 if __name__ == "__main__":
     main()
