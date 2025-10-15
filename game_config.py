@@ -181,7 +181,8 @@ WIND_TOWER_IMG_PATH  = "assets/pic/windtower.png"
 MONEY1_IMG_PATH = "assets/pic/money1.png"
 MONEY2_IMG_PATH = "assets/pic/money2.png"
 MONEY3_IMG_PATH = "assets/pic/money3.png"
-# 怪物圖片
+
+# 怪物圖片----
 SLIME_USE_IMAGE  = True
 SLIME_IMG_PATH   = "assets/pic/slime.png"
 SLIME_IMG_SIZE   = 32
@@ -200,6 +201,10 @@ GIANT_IMG_SIZE   = 32
 SANTELMO_USE_IMAGE = True
 SANTELMO_IMG_PATH = "assets/pic/santelmo.png"
 SANTELMO_IMG_SIZE = 32
+PUMPKIN_USE_IMAGE = True
+PUMPKIN_IMG_PATH = "assets/pic/pumpkin.png"
+PUMPKIN_IMG_SIZE = 32
+
 #BOSS
 BOSS_USE_IMAGE   = True
 BOSS_IMG_PATH    = "assets/pic/boss.png"
@@ -260,6 +265,15 @@ CREEP_CONFIG = {
         "attack": 2,
         "color": (255, 34, 63),
         "image": SANTELMO_IMG_PATH
+    },
+    "pumpkin": {
+        "name": "南瓜怪",
+        "hp": 7,
+        "speed": 0.02,
+        "reward": 1,
+        "attack": 2,
+        "color": (255, 137, 34),
+        "image": PUMPKIN_IMG_PATH
     },
     "runner": {
         "name": "鬼魂",
@@ -326,7 +340,7 @@ def get_wave_creeps(wave: int):
     try:
         all_types = list(CREEP_CONFIG.keys())
     except NameError:
-        all_types = ['slime','santelmo', 'runner', 'bat', 'giant', 'boss']
+        all_types = ['slime','santelmo','pumpkin', 'runner', 'bat', 'giant', 'boss']
 
     non_boss = [k for k in all_types if k != 'boss']
     if not non_boss:
@@ -348,7 +362,7 @@ def get_wave_creeps(wave: int):
     print(f"Wave {wave}: {plan}")
 
     # 35% 機率將其中一組替換為較強怪物（runner/bat/giant）
-    stronger_pool = [k for k in non_boss if k in ('runner','santelmo', 'bat', 'giant')]
+    stronger_pool = [k for k in non_boss if k in ('runner','pumpkin','santelmo', 'bat', 'giant')]
     if stronger_pool and len(plan) >= 2 and random.random() < 0.35:
         idx = random.randrange(len(plan))
         plan[idx]['type'] = random.choice(stronger_pool)
