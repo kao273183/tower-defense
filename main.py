@@ -16,7 +16,7 @@ V0.0.5 新增：地圖選擇
 V0.0.6 新增：出怪口隨機出現
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.61-Beta"
+TITLENAME = "塔路之戰-V0.0.62-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -2166,6 +2166,12 @@ def use_card_on_grid(r, c):
         if t['r']==r and t['c']==c:
             if gold < CARD_COST_DRAW:
                 add_notice(f"金幣不足：元素升級需要 ${CARD_COST_DRAW}", (255,120,120))
+                return
+            if t.get('element'):
+                if t['element'] == card:
+                    add_notice("此塔已擁有相同元素", (255,180,120))
+                else:
+                    add_notice("此塔已有其他元素，無法覆蓋", (255,180,120))
                 return
             # 消耗卡片與金幣
             hand.pop(card_index)
