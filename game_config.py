@@ -204,7 +204,12 @@ SANTELMO_IMG_SIZE = 32
 PUMPKIN_USE_IMAGE = True
 PUMPKIN_IMG_PATH = "assets/pic/pumpkin.png"
 PUMPKIN_IMG_SIZE = 32
-
+VAMPIRE_USE_IMAGE = True
+VAMPIRE_IMG_PATH = "assets/pic/vampire.png"
+VAMPIRE_IMG_SIZE = 32
+FRANKENSTEIN_USE_IMAGE = True
+FRANKENSTEIN_IMG_PATH = "assets/pic/frankenstein.png"
+FRANKENSTEIN_IMG_SIZE = 32
 #BOSS
 BOSS_USE_IMAGE   = True
 BOSS_IMG_PATH    = "assets/pic/boss.png"
@@ -293,6 +298,24 @@ CREEP_CONFIG = {
         "color": (120, 120, 220),
         "image": BAT_IMG_PATH
     },
+    "vampire": {
+        "name": "吸血鬼",
+        "hp": 10,
+        "speed": 0.03,
+        "reward": 3,
+        "attack": 3,
+        "color": (74, 68, 64),
+        "image": VAMPIRE_IMG_PATH
+    },
+    "frankenstein": {
+        "name": "科學怪人",
+        "hp": 25,
+        "speed": 0.04,
+        "reward": 10,
+        "attack": 5,
+        "color": (109, 199, 112),
+        "image": FRANKENSTEIN_IMG_PATH
+    },
     "giant": {
         "name": "巨人",
         "hp": 30,
@@ -340,7 +363,7 @@ def get_wave_creeps(wave: int):
     try:
         all_types = list(CREEP_CONFIG.keys())
     except NameError:
-        all_types = ['slime','santelmo','pumpkin', 'runner', 'bat', 'giant', 'boss']
+        all_types = ['slime','santelmo','vampire','pumpkin', 'runner', 'bat', 'giant', 'boss']
 
     non_boss = [k for k in all_types if k != 'boss']
     if not non_boss:

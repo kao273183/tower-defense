@@ -16,7 +16,7 @@ V0.0.5 新增：地圖選擇
 V0.0.6 新增：出怪口隨機出現
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.63-Beta"
+TITLENAME = "塔路之戰-V0.0.64-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -802,11 +802,12 @@ try:
             MONSTER_SURFS[key] = surf
     if MONSTER_IMG:
         MONSTER_SURFS.setdefault('grunt', MONSTER_IMG)
+    
+    loading_tick("載入怪物素材…")
     extra_monster_imgs = _load_monster_images_from_config()
     if extra_monster_imgs:
         MONSTER_SURFS.update({k: v for k, v in extra_monster_imgs.items() if v})
     LOAD_STEP = 1
-    loading_tick("載入怪物素材…")
     if HIT_USE_IMAGE and os.path.exists(HIT_IMG_PATH):
         BLAST_IMG = pygame.image.load(HIT_IMG_PATH).convert_alpha()
     if DEATH_USE_IMAGE and os.path.exists(DEATH_IMG_PATH):
