@@ -1,6 +1,8 @@
 # ==== 視窗 / 地圖 ====
 import random
 
+from main import THUNDER_TOWER_IMG
+
 W = 960
 H = 640
 CELL = 40
@@ -58,6 +60,11 @@ CARD_RATES = [
 # ==== 怪物成長設定 ====
 CREEP_REWARD_GROWTH = 0.02  # 每波擊殺金幣增加 2%
 CREEP_ATTACK_GROWTH = 0.02  # 每波攻擊力增加 2%
+
+# ==== 元素融合設定 ====
+ELEMENT_FUSIONS = {
+    ('wind', 'water'): 'thunder',
+}
 
 # ===== 塔數值（可獨立調平衡）====# game_config.py
 TOWER_LEVEL_RULES = {
@@ -137,6 +144,12 @@ ELEMENT_EFFECTS = {
         'description': '擊退敵人一格',
         'base_knockback': 1,  # 初始擊退格數
         'scale_per_lv': 1     # 每級增加 1 格擊退距離
+    },
+    'thunder': {
+        'type': 'chain',
+        'description': '連鎖閃電攻擊額外敵人',
+        'base_targets': 2,
+        'targets_per_lv': 1
     }
 }
 # ==== 怪物數值（可獨立調平衡）====
@@ -186,6 +199,8 @@ ROCKET_TOWER_IMG_PATH  = "assets/pic/firetower.png"
 WATER_TOWER_IMG_PATH = "assets/pic/watertower.png"
 LAND_TOWER_IMG_PATH  = "assets/pic/landtower.png"
 WIND_TOWER_IMG_PATH  = "assets/pic/windtower.png"
+THUNDER_TOWER_IMG_PATH = "assets/pic/thundertower.png"
+
 #金幣卡
 MONEY1_IMG_PATH = "assets/pic/money1.png"
 MONEY2_IMG_PATH = "assets/pic/money2.png"

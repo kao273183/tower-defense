@@ -1,5 +1,6 @@
 ﻿# -*- coding:utf-8 -*-
 import pygame, sys, math, random, os
+from collections import Counter
 from game_config import CREEP_CONFIG, get_wave_creeps
 
 import game_config as CFG
@@ -17,7 +18,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.71-Beta"
+TITLENAME = "塔路之戰-V0.0.72-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -159,7 +160,7 @@ def load_map_from_file():
 # === 卡片系統 ===
 CARD_COST_DRAW = 5       # 抽卡花費
 CARD_COST_BUILD = 10     # Basic_Tower 建置花費（與 BUILD_COST 保持一致或直接以此為主）
-CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade", "1money", "2money", "3money", "lumberyard"]
+CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade", "1money", "2money", "3money", "lumberyard", "thunder"]
 # 伐木場資源與修復設定（可於 game_config.py 覆蓋）
 WOOD_PER_SECOND_PER_YARD = getattr(CFG, 'WOOD_PER_SECOND_PER_YARD', 1)
 WOOD_REPAIR_COST = getattr(CFG, 'WOOD_REPAIR_COST', 5)          # 花費木材數量
@@ -178,6 +179,7 @@ CARD_IMAGES = {
     "3money": "assets/pic/money3.png",
     "bg":      "assets/pic/BgCard.png",        # 卡底背景
     "lumberyard": "assets/pic/lumberyardCard.png",#伐物場
+    "thunder": "assets/pic/lightningCard.png",
 }
 
 # 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
@@ -195,7 +197,43 @@ CARD_COSTS = {
     "2money": 0,
     "3money": 0,
     "lumberyard": 0,
+    "thunder": CARD_COST_DRAW,
 }
+
+def _load_element_fusions():
+    default = {('wind', 'water'): 'thunder'}
+    src = getattr(CFG, 'ELEMENT_FUSIONS', None)
+    mapping = {}
+    raw = src if isinstance(src, dict) else default
+    if src is None:
+        raw = default
+    for key, result in raw.items():
+        if isinstance(key, (list, tuple)):
+            items = [str(k) for k in key]
+            ingredients = tuple(sorted(items))
+        else:
+            continue
+        if not ingredients:
+            continue
+        out = str(result)
+        mapping[ingredients] = out
+    if not mapping and default:
+        for key, result in default.items():
+            if isinstance(key, (list, tuple)):
+                items = [str(k) for k in key]
+                ingredients = tuple(sorted(items))
+            else:
+                continue
+            if not ingredients:
+                continue
+            mapping[ingredients] = str(result)
+    if not mapping:
+        mapping = default
+    return mapping
+
+ELEMENT_FUSIONS = _load_element_fusions()
+FUSION_BASE_SET = set(k for combo in ELEMENT_FUSIONS.keys() for k in combo)
+FUSION_REQUIRED_LENGTHS = set(len(combo) for combo in ELEMENT_FUSIONS.keys()) or {2}
 
 CARD_RATES_DEFAULT = [
     {'type': 'basic',   'weight': 45},
@@ -248,7 +286,8 @@ def _card_display_name(name):
         '1money': '新增金幣1元',
         '2money': '新增金幣2元',
         '3money': '新增金幣3元',
-        'lumberyard':'伐木場'
+        'lumberyard':'伐木場',
+        'thunder':'雷電元素'
     }
     return mapping.get(name, name)
 # === 卡片圖快取與縮放 ===
@@ -297,6 +336,12 @@ selected_card = None     # 被選取的手牌索引或名稱
 MAX_HAND_CARDS = 5
 HAND_UI_RECTS = []  # 每幀重建：[(rect, index)]
 WOOD_REPAIR_BTN_RECT = None
+FUSION_BTN_RECT = None
+fusion_active = False
+fusion_selection = []  # list of手牌索引
+FUSION_UI_RECTS = []
+FUSION_PANEL_RECT = None
+FUSION_CANCEL_RECT = None
 #主堡設定
 CASTLE = {
     'hp': 50,      # 當前血量
@@ -404,6 +449,7 @@ TOWER_IMG_SIZE  = 36  # 圖片縮放邊長（像素）
 
 ROCKET_TOWER_IMG       = None
 ROCKET_TOWER_IMG_PATH  = "assets/pic/rocket_tower.png"
+THUNDER_TOWER_IMG      = None
 
 # 四元素塔 ICON（依元素顯示）
 FIRE_TOWER_IMG  = None
@@ -415,8 +461,10 @@ FIRE_TOWER_IMG_PATH  = "assets/pic/firetower.png"
 WATER_TOWER_IMG_PATH = "assets/pic/watertower.png"
 LAND_TOWER_IMG_PATH  = "assets/pic/landtower.png"
 WIND_TOWER_IMG_PATH  = "assets/pic/windtower.png"
+THUNDER_TOWER_IMG_PATH = "assets/pic/thundertower.png"
 # --- 伐木場 ---
 LUMBERYARD_IMG_PATH = "assets/pic/lumberyard.png"
+LUMBERYARD_IMG = None
 # --- 升級特效（LEVEL UP） ---
 LEVELUP_USE_IMAGE = True
 LEVELUP_IMG_PATH  = "assets/pic/level-up.png"
@@ -629,6 +677,8 @@ def _get_elem_cfg(elem, lvl):
         base = {'type':'bleed','duration':0.5,'scale_per_lv':0.015}
     elif elem == 'wind':
         base = {'type':'knockback','base_knockback':1,'scale_per_lv':1}
+    elif elem == 'thunder':
+        base = {'type':'chain','base_targets':2,'targets_per_lv':1}
     else:
         return None
     merged = dict(base)
@@ -644,6 +694,7 @@ def _get_elem_cfg(elem, lvl):
         base_kb = int(merged.get('base_knockback', 1))
         inc = int(merged.get('scale_per_lv', 1))
         merged['grids'] = max(1, base_kb + inc * max(0, int(lvl)))
+    merged['level'] = lvl
     return merged
 
 def _apply_status_on_hit(target, elem_cfg, atk_val):
@@ -663,6 +714,12 @@ def _apply_status_on_hit(target, elem_cfg, atk_val):
     elif etype == 'knockback':
         # 擊退在命中瞬間處理，這裡不存狀態
         pass
+    elif etype == 'chain':
+        lvl = max(0, int(elem_cfg.get('level', 0))) if 'level' in elem_cfg else 0
+        eff['chain'] = {
+            'remaining': max(0, int(elem_cfg.get('base_targets', 2))) + max(0, int(elem_cfg.get('targets_per_lv', 1))) * lvl,
+            'visited': set()
+        }
 
 def _do_knockback(creep, grids):
     # 依路徑往回推若干格（若沒有路徑，忽略）
@@ -674,6 +731,51 @@ def _do_knockback(creep, grids):
     tr, tc = route[target_wp]
     creep['r'], creep['c'] = float(tr), float(tc)
     creep['wp'] = target_wp + 1
+
+def _perform_chain_lightning(primary, elem_cfg, bullet):
+    remaining = max(0, int(elem_cfg.get('base_targets', 2)))
+    remaining += max(0, int(elem_cfg.get('targets_per_lv', 1))) * max(0, int(elem_cfg.get('level', 0)))
+    if remaining <= 0:
+        return
+    dmg = max(1, int(round(bullet.get('dmg', 1))))
+    visited = set()
+    if primary.get('id') is not None:
+        visited.add(primary['id'])
+    last = primary
+    global hits, corpses, gains, gold, creeps
+    for _ in range(remaining):
+        last_x, last_y = center_px(last['r'], int(last['c']))
+        next_target = None
+        best_dist = None
+        for cand in creeps:
+            if not cand.get('alive'):
+                continue
+            cid = cand.get('id')
+            if cid in visited:
+                continue
+            cx, cy = center_px(cand['r'], int(cand['c']))
+            dist = (cx - last_x) ** 2 + (cy - last_y) ** 2
+            if best_dist is None or dist < best_dist:
+                best_dist = dist
+                next_target = cand
+        if not next_target:
+            break
+        cid = next_target.get('id')
+        if cid is not None:
+            visited.add(cid)
+        cx, cy = center_px(next_target['r'], int(next_target['c']))
+        hits.append({'x': cx, 'y': cy, 'ttl': 12, 'dmg': dmg, 'color': (200, 220, 255)})
+        next_target['hp'] -= dmg
+        sfx(SFX_HIT)
+        if next_target['hp'] <= 0:
+            next_target['alive'] = False
+            corpses.append({'x': cx, 'y': cy, 'ttl': 24})
+            reward_amt = reward_for(next_target.get('type', 'slime'))
+            gains.append({'x': cx, 'y': cy - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+            gold += reward_amt
+            next_target['rewarded'] = True
+            sfx(SFX_DEATH); sfx(SFX_COIN)
+        last = next_target
 def find_ch_font():
     # On web, system fonts are unavailable; prefer bundled font
     web_font = os.path.join("assets", "font", "NotoSansCJK-Regular.otf")
@@ -911,6 +1013,7 @@ try:
     if os.path.exists(ROCKET_TOWER_IMG_PATH):
         _raw = pygame.image.load(ROCKET_TOWER_IMG_PATH).convert_alpha()
         ROCKET_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    
 
     # 四元素圖示（用於依元素覆蓋顯示）
     if os.path.exists(FIRE_TOWER_IMG_PATH):
@@ -925,6 +1028,9 @@ try:
     if os.path.exists(WIND_TOWER_IMG_PATH):
         _raw = pygame.image.load(WIND_TOWER_IMG_PATH).convert_alpha()
         WIND_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    if os.path.exists(THUNDER_TOWER_IMG_PATH):
+        _raw = pygame.image.load(THUNDER_TOWER_IMG_PATH).convert_alpha()
+        THUNDER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
 
     #伐木場
     if os.path.exists(LUMBERYARD_IMG_PATH):
@@ -1224,6 +1330,135 @@ def get_max_tower_level(ttype):
     except Exception:
         return max(levels.keys())
 
+def get_available_fusions():
+    if not ELEMENT_FUSIONS or not hand:
+        return []
+    usable_counts = Counter(card for card in hand if card in FUSION_BASE_SET)
+    options = []
+    for combo, result in ELEMENT_FUSIONS.items():
+        need = Counter(combo)
+        if all(usable_counts[c] >= need[c] for c in need):
+            options.append((combo, result))
+    return options
+
+def start_fusion_selection():
+    global fusion_active, fusion_selection, FUSION_UI_RECTS
+    if fusion_active:
+        return
+    if not get_available_fusions():
+        add_notice("目前沒有可融合的元素卡", (255,180,120))
+        sfx(SFX_CLICK)
+        return
+    fusion_active = True
+    fusion_selection = []
+    FUSION_UI_RECTS = []
+    sfx(SFX_CLICK)
+
+def cancel_fusion_selection():
+    global fusion_active, fusion_selection, FUSION_UI_RECTS, FUSION_PANEL_RECT, FUSION_CANCEL_RECT
+    fusion_active = False
+    fusion_selection = []
+    FUSION_UI_RECTS = []
+    FUSION_PANEL_RECT = None
+    FUSION_CANCEL_RECT = None
+
+def _try_complete_fusion():
+    global fusion_active, fusion_selection, selected_card
+    if not fusion_selection:
+        return
+    names = []
+    for idx in fusion_selection:
+        if 0 <= idx < len(hand):
+            names.append(hand[idx])
+    combo_key = tuple(sorted(names))
+    result = ELEMENT_FUSIONS.get(combo_key)
+    if result and len(names) in FUSION_REQUIRED_LENGTHS:
+        for idx in sorted(fusion_selection, reverse=True):
+            if 0 <= idx < len(hand):
+                hand.pop(idx)
+        selected_card = None
+        hand.append(result)
+        add_notice(f"融合成功，獲得『{_card_display_name(result)}』", (170, 220, 255))
+        sfx(SFX_LEVELUP)
+        cancel_fusion_selection()
+    else:
+        min_need = min(FUSION_REQUIRED_LENGTHS) if FUSION_REQUIRED_LENGTHS else 2
+        max_need = max(FUSION_REQUIRED_LENGTHS) if FUSION_REQUIRED_LENGTHS else 2
+        if len(names) >= min_need:
+            if len(names) > max_need or len(names) in FUSION_REQUIRED_LENGTHS:
+                add_notice("組合無效，請重新選擇", (255,120,120))
+                fusion_selection = []
+
+def handle_fusion_click(pos):
+    global fusion_selection
+    mx, my = pos
+    if FUSION_CANCEL_RECT and FUSION_CANCEL_RECT.collidepoint(mx, my):
+        sfx(SFX_CLICK)
+        cancel_fusion_selection()
+        return
+    for rect, idx in FUSION_UI_RECTS:
+        if rect.collidepoint(mx, my):
+            if idx in fusion_selection:
+                fusion_selection.remove(idx)
+            else:
+                fusion_selection.append(idx)
+            _try_complete_fusion()
+            return
+    if FUSION_PANEL_RECT and not FUSION_PANEL_RECT.collidepoint(mx, my):
+        cancel_fusion_selection()
+
+def draw_fusion_overlay():
+    global FUSION_UI_RECTS, FUSION_CANCEL_RECT, FUSION_PANEL_RECT
+    overlay = pygame.Surface((W, H), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 180))
+    screen.blit(overlay, (0, 0))
+    panel = pygame.Rect(W//2 - 260, H//2 - 260, 520, 520)
+    FUSION_PANEL_RECT = panel
+    pygame.draw.rect(screen, (28, 38, 62), panel, border_radius=12)
+    pygame.draw.rect(screen, (120, 150, 235), panel, 2, border_radius=12)
+    title = BIG.render("融合元素", True, (235, 242, 255))
+    screen.blit(title, (panel.x + (panel.width - title.get_width())//2, panel.y + 16))
+    info = SMALL.render("選擇要融合的元素卡｜再次點擊可取消選取", True, (210, 220, 235))
+    screen.blit(info, (panel.x + (panel.width - info.get_width())//2, panel.y + 56))
+
+    FUSION_UI_RECTS = []
+    candidates = [(idx, name) for idx, name in enumerate(hand) if name in FUSION_BASE_SET]
+    cols = 4
+    slot_w, slot_h = CARD_SLOT_SIZE
+    gap_x, gap_y = 20, 12
+    start_x = panel.x + 40
+    start_y = panel.y + 90
+    for i, (idx, name) in enumerate(candidates):
+        row = i // cols
+        col = i % cols
+        rect = pygame.Rect(start_x + col * (slot_w + gap_x), start_y + row * (slot_h + gap_y), slot_w, slot_h)
+        FUSION_UI_RECTS.append((rect, idx))
+        pygame.draw.rect(screen, (45, 55, 80), rect, border_radius=10)
+        img = get_card_scaled(name)
+        if img:
+            ir = img.get_rect(center=rect.center)
+            screen.blit(img, ir)
+        if idx in fusion_selection:
+            pygame.draw.rect(screen, (255, 220, 120), rect, 4, border_radius=10)
+        else:
+            pygame.draw.rect(screen, (90, 110, 160), rect, 2, border_radius=10)
+    if not candidates:
+        empty_msg = SMALL.render("沒有可供融合的元素卡", True, (255, 180, 120))
+        screen.blit(empty_msg, (panel.x + (panel.width - empty_msg.get_width())//2, panel.y + panel.height//2))
+
+    cancel_rect = pygame.Rect(panel.right - 120, panel.bottom - 50, 96, 32)
+    FUSION_CANCEL_RECT = cancel_rect
+    pygame.draw.rect(screen, (60, 40, 40), cancel_rect, border_radius=8)
+    pygame.draw.rect(screen, (180, 120, 120), cancel_rect, 2, border_radius=8)
+    cancel_label = SMALL.render("取消", True, (235, 220, 220))
+    screen.blit(cancel_label, (cancel_rect.x + (cancel_rect.width - cancel_label.get_width())//2,
+                               cancel_rect.y + (cancel_rect.height - cancel_label.get_height())//2))
+
+    selected_names = [hand[idx] for idx in fusion_selection if 0 <= idx < len(hand)]
+    if selected_names:
+        current = SMALL.render("選擇：" + " + ".join(selected_names), True, (200, 230, 255))
+        screen.blit(current, (panel.x + 40, panel.bottom - 50))
+
 def update_lumberyards(dt_ms):
     """依據時間流逝累積伐木場產出的木材。"""
     global _wood_timer_acc, wood_stock
@@ -1239,7 +1474,7 @@ def update_lumberyards(dt_ms):
         _wood_timer_acc -= gained
 
 def draw_panel():
-    global WOOD_REPAIR_BTN_RECT
+    global WOOD_REPAIR_BTN_RECT, FUSION_BTN_RECT
     pygame.draw.rect(screen, PANEL, (0,0,W,TOP))
     txt = FONT.render(f"$ {gold}  Wave {wave}{' (spawning)' if wave_incoming else ''}    Speed x{speed}", True, TEXT)
     screen.blit(txt, (16, 10))
@@ -1250,12 +1485,10 @@ def draw_panel():
     #wood_x = W - wood_label.get_width() - 16
     screen.blit(wood_label, (16, 120))
     # 修復按鈕
+    btn_w, btn_h = 150, 28
+    btn_x = 16
+    btn_y = 150
     if WOOD_REPAIR_COST > 0 and WOOD_REPAIR_HP > 0:
-        btn_w, btn_h = 150, 28
-        btn_x = 16 
-        btn_y = 150
-        #btn_x = W - btn_w - 16
-        #btn_y = 10 + wood_label.get_height() + 6
         WOOD_REPAIR_BTN_RECT = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
         can_repair = (wood_stock >= WOOD_REPAIR_COST) and (CASTLE['hp'] < CASTLE['max_hp'])
         bg_color = (48, 74, 110) if can_repair else (30, 40, 58)
@@ -1266,6 +1499,19 @@ def draw_panel():
         screen.blit(label, (btn_x + (btn_w - label.get_width())//2, btn_y + (btn_h - label.get_height())//2))
     else:
         WOOD_REPAIR_BTN_RECT = None
+    fusion_y = btn_y + btn_h + 8
+    FUSION_BTN_RECT = pygame.Rect(btn_x, fusion_y, btn_w, btn_h)
+    fusion_available = bool(get_available_fusions())
+    fusion_bg = (74, 48, 110) if fusion_available else (30, 32, 52)
+    fusion_border = (200, 150, 255) if fusion_available else (70, 90, 120)
+    if fusion_active:
+        fusion_bg = (110, 86, 150)
+        fusion_border = (255, 230, 160)
+    pygame.draw.rect(screen, fusion_bg, FUSION_BTN_RECT, border_radius=6)
+    pygame.draw.rect(screen, fusion_border, FUSION_BTN_RECT, 2, border_radius=6)
+    fusion_label = SMALL.render("融合元素", True, (235, 242, 255))
+    screen.blit(fusion_label, (FUSION_BTN_RECT.x + (btn_w - fusion_label.get_width())//2,
+                               FUSION_BTN_RECT.y + (btn_h - fusion_label.get_height())//2))
     if not wave_incoming and next_spawns:
         nr, nc = (next_spawns[0] if next_spawns else (0,0))
         info = FONT.render(f"＊＊下一波出口：怪物 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
@@ -1463,6 +1709,7 @@ def draw_help_screen():
         "清空當波怪物後，才會顯示下一波預告",
         "伐木場：使用卡牌建造後每秒產木材，可查看存量",
         "木材修復：點擊修復按鈕或按 F (Shift+F 一次使用多份) 來回復主堡 HP",
+        "融合元素：點擊面板按鈕選擇手牌元素進行合成",
         "按 Enter/Space 回到遊戲，或 Esc 返回主選單"
     ]
     # 額外說明：隨機地圖與右鍵丟棄
@@ -1546,6 +1793,7 @@ def draw_tower_icon(t):
             'water': WATER_TOWER_IMG,
             'land':  LAND_TOWER_IMG,
             'wind':  WIND_TOWER_IMG,
+            'thunder': THUNDER_TOWER_IMG,
         }.get(elem)
 
     if elem_img:
@@ -2131,13 +2379,15 @@ def bullets_step():
                     sfx(SFX_DEATH); sfx(SFX_COIN)
                 continue
             # 元素效果（單體）
-            if b.get('element') in ('water','land','wind','fire'):
+            if b.get('element') in ('water','land','wind','fire','thunder'):
                 ecfg = _get_elem_cfg(b['element'], b.get('tlevel',0))
                 if ecfg:
                     if ecfg.get('type') == 'knockback':
                         _do_knockback(target, ecfg.get('grids',1))
                     else:
                         _apply_status_on_hit(target, ecfg, b['dmg'])
+                    if ecfg.get('type') == 'chain':
+                        _perform_chain_lightning(target, ecfg, b)
             if b.get('aoe'):
                 ax, ay = tx, ty
                 radius = 60
@@ -2260,7 +2510,7 @@ def next_wave():
 def reset_game():
     global running, tick, gold, life, wave, wave_incoming, spawn_counter
     global towers, creeps, bullets, hits, corpses, gains, upgrades, lumberyards, lumberyard_blocked
-    global wood_stock, _wood_timer_acc
+    global wood_stock, _wood_timer_acc, fusion_active, fusion_selection
     running=False; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
@@ -2271,6 +2521,7 @@ def reset_game():
     lumberyards.clear()
     wood_stock = 0
     _wood_timer_acc = 0.0
+    cancel_fusion_selection()
     globals()['current_spawns'] = None
     globals()['next_spawns'] = None
     globals()['_spawn_rot'] = 0
@@ -2486,6 +2737,7 @@ def use_card_on_grid(r, c):
                 "wind": "arrow",   # 例如改為高攻速箭塔（可在 TOWER_TYPES['arrow'] 另設元素旗標）
                 "water": "arrow",  # 不再使用 thunder 型塔，水元素以箭塔型呈現（效果仍由元素 slow 觸發）
                 "land": "arrow",   # 例如防禦/更高傷害（可在 arrow 上設 buff）
+                "thunder": "thunder",
             }
             new_type = mapping.get(card, "arrow")
             gold -= spend
@@ -2560,6 +2812,10 @@ def go_menu():
 
 def handle_keys(ev):
     global game_state, running, speed, sel, selected_map_idx
+    if fusion_active:
+        if ev.key == pygame.K_ESCAPE:
+            cancel_fusion_selection()
+        return
     if game_state == GAME_MENU:
         if ev.key in (pygame.K_RETURN, pygame.K_SPACE):
             sfx(SFX_CLICK)
@@ -2652,6 +2908,10 @@ def handle_click(pos):
     global sel, game_state, selected_card, hand, gold, effects
     mx, my = pos
 
+    if fusion_active:
+        handle_fusion_click(pos)
+        return
+
     # --- MENU / HELP 畫面：不做去抖，立即回應 ---
     if game_state == GAME_MENU:
         # 檢查是否點擊三個按鈕
@@ -2718,6 +2978,9 @@ def handle_click(pos):
         mult = WOOD_REPAIR_LIMIT_PER_CLICK if (mods & pygame.KMOD_SHIFT) else 1
         repair_castle_with_wood(mult)
         return
+    if FUSION_BTN_RECT and FUSION_BTN_RECT.collidepoint(mx, my):
+        start_fusion_selection()
+        return
 
     # 先判斷是否點到手牌列（選牌）
     for rct, idx in HAND_UI_RECTS:
@@ -2765,6 +3028,9 @@ def handle_click(pos):
 # 新增：右鍵手牌丟棄
 def handle_right_click(pos):
     global selected_card, hand, gold
+    if fusion_active:
+        cancel_fusion_selection()
+        return
     mx, my = pos
     # 只處理在遊戲中
     if game_state not in (GAME_PLAY,):
@@ -2899,6 +3165,8 @@ def main():
             screen.fill(BG)
         draw_panel(); draw_world(); draw_hand_bar()
         draw_effects()
+        if fusion_active:
+            draw_fusion_overlay()
         if life<=0:
             s = pygame.Surface((W,H), pygame.SRCALPHA); s.fill((0,0,0,160)); screen.blit(s,(0,0))
             txt = BIG.render("Game Over - 按 R 重來", True, TEXT); rect = txt.get_rect(center=(W//2, H//2)); screen.blit(txt, rect)
