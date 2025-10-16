@@ -18,7 +18,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.74-Beta"
+TITLENAME = "塔路之戰-V0.0.75-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -160,7 +160,11 @@ def load_map_from_file():
 # === 卡片系統 ===
 CARD_COST_DRAW = 5       # 抽卡花費
 CARD_COST_BUILD = 10     # Basic_Tower 建置花費（與 BUILD_COST 保持一致或直接以此為主）
-CARD_POOL = ["basic", "fire", "wind", "water", "land", "upgrade", "1money", "2money", "3money", "lumberyard", "thunder"]
+CARD_POOL = [
+    "basic", "fire", "wind", "water", "land", "upgrade",
+    "ice", "poison", "thunder",
+    "1money", "2money", "3money", "lumberyard"
+]
 # 伐木場資源與修復設定（可於 game_config.py 覆蓋）
 WOOD_PER_SECOND_PER_YARD = getattr(CFG, 'WOOD_PER_SECOND_PER_YARD', 1)
 WOOD_REPAIR_COST = getattr(CFG, 'WOOD_REPAIR_COST', 5)          # 花費木材數量
@@ -180,6 +184,8 @@ CARD_IMAGES = {
     "bg":      "assets/pic/BgCard.png",        # 卡底背景
     "lumberyard": "assets/pic/lumberyardCard.png",#伐物場
     "thunder": "assets/pic/lightningCard.png",
+    "ice": "assets/pic/iceCard.png",
+    "poison": "assets/pic/poisonCard.png",
     'ice': 'assets/pic/iceCard.png',
     'poison': 'assets/pic/poisonCard.png'
 }
@@ -200,6 +206,8 @@ CARD_COSTS = {
     "3money": 0,
     "lumberyard": 0,
     "thunder": CARD_COST_DRAW,
+    "ice": CARD_COST_DRAW,
+    "poison": CARD_COST_DRAW,
 }
 
 def _load_element_fusions():
@@ -576,6 +584,24 @@ TOWER_TYPES = {
         2: {'atk': 3, 'range': 4, 'rof': 3.0},
         3: {'atk': 4, 'range': 4, 'rof': 3.5},
     },
+    'thunder': {
+        0: {'atk': 2, 'range': 3, 'rof': 1.5},
+        1: {'atk': 3, 'range': 3, 'rof': 1.7},
+        2: {'atk': 4, 'range': 4, 'rof': 1.9},
+        3: {'atk': 5, 'range': 4, 'rof': 2.1},
+    },
+    'ice': {
+        0: {'atk': 1, 'range': 2, 'rof': 1.6},
+        1: {'atk': 2, 'range': 2, 'rof': 1.8},
+        2: {'atk': 2, 'range': 3, 'rof': 2.0},
+        3: {'atk': 3, 'range': 3, 'rof': 2.2},
+    },
+    'poison': {
+        0: {'atk': 1, 'range': 3, 'rof': 1.4},
+        1: {'atk': 2, 'range': 3, 'rof': 1.6},
+        2: {'atk': 3, 'range': 4, 'rof': 1.8},
+        3: {'atk': 4, 'range': 4, 'rof': 2.0},
+    },
 }
 ARROW_EVOLVE_LEVEL = getattr(CFG, 'ARROW_EVOLVE_LEVEL', 2)
 
@@ -697,6 +723,11 @@ def _get_elem_cfg(elem, lvl):
         base_kb = int(merged.get('base_knockback', 1))
         inc = int(merged.get('scale_per_lv', 1))
         merged['grids'] = max(1, base_kb + inc * max(0, int(lvl)))
+    if merged.get('type') == 'freeze':
+        dur = float(merged.get('duration', 0.5)) + float(merged.get('duration_per_lv', 0.0)) * max(0, int(lvl))
+        merged['duration_total'] = max(0.05, dur)
+    if merged.get('type') == 'poison_cloud':
+        merged['radius_total'] = float(merged.get('radius', 2.0)) + float(merged.get('radius_per_lv', 0.0)) * max(0, int(lvl))
     merged['level'] = lvl
     return merged
 
@@ -723,6 +754,12 @@ def _apply_status_on_hit(target, elem_cfg, atk_val):
             'remaining': max(0, int(elem_cfg.get('base_targets', 2))) + max(0, int(elem_cfg.get('targets_per_lv', 1))) * lvl,
             'visited': set()
         }
+    elif etype == 'freeze':
+        duration = float(elem_cfg.get('duration_total', elem_cfg.get('duration', 0.5)))
+        frames = max(1, int(round(duration * 60)))
+        eff['freeze'] = {'ttl': frames}
+    elif etype == 'poison_cloud':
+        pass
 
 def _do_knockback(creep, grids):
     # 依路徑往回推若干格（若沒有路徑，忽略）
@@ -779,6 +816,27 @@ def _perform_chain_lightning(primary, elem_cfg, bullet):
             next_target['rewarded'] = True
             sfx(SFX_DEATH); sfx(SFX_COIN)
         last = next_target
+
+def _spawn_poison_cloud(x, y, elem_cfg, atk_val):
+    duration = float(elem_cfg.get('duration_total', elem_cfg.get('duration', 2.0)))
+    ttl = max(1, int(round(duration * 60)))
+    radius_units = float(elem_cfg.get('radius_total', elem_cfg.get('radius', 2.0)))
+    radius = radius_units * CELL
+    radius = max(CELL * 0.5, radius)
+    tick = max(1, int(elem_cfg.get('tick_interval', 15)))
+    dmg_ratio = float(elem_cfg.get('dmg_ratio', 0.3))
+    dmg = max(1, int(round(atk_val * dmg_ratio)))
+    cloud = {
+        'x': x,
+        'y': y,
+        'radius': radius,
+        'ttl': ttl,
+        'ttl_max': ttl,
+        'tick': tick,
+        'timer': tick,
+        'dmg': dmg
+    }
+    poison_clouds.append(cloud)
 def find_ch_font():
     # On web, system fonts are unavailable; prefer bundled font
     web_font = os.path.join("assets", "font", "NotoSansCJK-Regular.otf")
@@ -1298,6 +1356,7 @@ lumberyards = set()
 lumberyard_blocked = set()
 wood_stock = 0
 _wood_timer_acc = 0.0
+poison_clouds = []
 
 ids={'tower':1,'creep':1}
 wave_spawn_queue=[]; SPAWN_INTERVAL=60
@@ -1472,6 +1531,52 @@ def update_lumberyards(dt_ms):
     if gained >= 1:
         wood_stock += gained
         _wood_timer_acc -= gained
+
+def poison_clouds_step():
+    global poison_clouds, hits, corpses, gains, gold, creeps
+    active = []
+    for cloud in poison_clouds:
+        cloud['ttl'] -= 1
+        if cloud['ttl'] <= 0:
+            continue
+        cloud['timer'] -= 1
+        if cloud['timer'] <= 0:
+            cloud['timer'] = cloud['tick']
+            radius = cloud['radius']
+            radius_sq = radius * radius
+            for m in list(creeps):
+                if not m.get('alive'):
+                    continue
+                cx, cy = center_px(m['r'], int(m['c']))
+                dx = cx - cloud['x']
+                dy = cy - cloud['y']
+                if dx * dx + dy * dy <= radius_sq:
+                    m['hp'] -= cloud['dmg']
+                    hits.append({'x': cx, 'y': cy, 'ttl': 10, 'dmg': cloud['dmg'], 'color': (120, 255, 150)})
+                    if m['hp'] <= 0:
+                        m['alive'] = False
+                        corpses.append({'x': cx, 'y': cy, 'ttl': 24})
+                        reward_amt = reward_for(m.get('type', 'slime'))
+                        gains.append({'x': cx, 'y': cy - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+                        gold += reward_amt
+                        m['rewarded'] = True
+                        sfx(SFX_DEATH); sfx(SFX_COIN)
+        active.append(cloud)
+    poison_clouds[:] = active
+
+def draw_poison_clouds():
+    if not poison_clouds:
+        return
+    for cloud in poison_clouds:
+        radius = int(cloud['radius'])
+        if radius <= 0:
+            continue
+        alpha_ratio = cloud['ttl'] / float(cloud.get('ttl_max', cloud['ttl']) or 1)
+        alpha = max(40, min(160, int(160 * alpha_ratio)))
+        surface = pygame.Surface((radius*2, radius*2), pygame.SRCALPHA)
+        pygame.draw.circle(surface, (60, 200, 120, alpha), (radius, radius), radius)
+        pygame.draw.circle(surface, (40, 160, 80, int(alpha*0.6)), (radius, radius), max(10, int(radius*0.7)))
+        screen.blit(surface, (cloud['x'] - radius, cloud['y'] - radius))
 
 def draw_panel():
     global WOOD_REPAIR_BTN_RECT, FUSION_BTN_RECT
@@ -2282,6 +2387,15 @@ def move_creeps():
         for k in list(eff.keys()):
             if not eff[k]:
                 eff.pop(k, None)
+        # 冰凍：完全停滯
+        frozen = eff.get('freeze')
+        if frozen:
+            frozen['ttl'] -= 1
+            if frozen['ttl'] <= 0:
+                eff.pop('freeze', None)
+            else:
+                alive.append(m)
+                continue
         # 緩速：在本幀速度上套用
         slow_ratio = 1.0
         if 'slow' in eff and eff['slow'] and eff['slow']['ttl'] > 0:
@@ -2371,15 +2485,22 @@ def bullets_step():
                     sfx(SFX_DEATH); sfx(SFX_COIN)
                 continue
             # 元素效果（單體）
-            if b.get('element') in ('water','land','wind','fire','thunder'):
+            element = b.get('element')
+            if element in ('water','land','wind','fire','thunder','ice','poison'):
                 ecfg = _get_elem_cfg(b['element'], b.get('tlevel',0))
                 if ecfg:
-                    if ecfg.get('type') == 'knockback':
+                    etype = ecfg.get('type')
+                    if etype == 'knockback':
                         _do_knockback(target, ecfg.get('grids',1))
+                    elif etype == 'poison_cloud':
+                        _spawn_poison_cloud(tx, ty, ecfg, b['dmg'])
                     else:
                         _apply_status_on_hit(target, ecfg, b['dmg'])
-                    if ecfg.get('type') == 'chain':
+                    if etype == 'chain':
                         _perform_chain_lightning(target, ecfg, b)
+                    if etype == 'poison_cloud':
+                        # 已生成毒霧，不需要保留於目標
+                        pass
             if b.get('aoe'):
                 ax, ay = tx, ty
                 radius = 60
@@ -2417,6 +2538,7 @@ def bullets_step():
 
 def draw_world():
     draw_map()
+    draw_poison_clouds()
     for t in towers: draw_tower_icon(t)
     draw_upgrades()
     for m in creeps: draw_monster_icon(m)
@@ -2501,7 +2623,7 @@ def next_wave():
 
 def reset_game():
     global running, tick, gold, life, wave, wave_incoming, spawn_counter
-    global towers, creeps, bullets, hits, corpses, gains, upgrades, lumberyards, lumberyard_blocked
+    global towers, creeps, bullets, hits, corpses, gains, upgrades, lumberyards, lumberyard_blocked, poison_clouds
     global wood_stock, _wood_timer_acc, fusion_active, fusion_selection
     running=False; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
@@ -2514,6 +2636,7 @@ def reset_game():
     wood_stock = 0
     _wood_timer_acc = 0.0
     cancel_fusion_selection()
+    poison_clouds.clear()
     globals()['current_spawns'] = None
     globals()['next_spawns'] = None
     globals()['_spawn_rot'] = 0
@@ -2730,6 +2853,8 @@ def use_card_on_grid(r, c):
                 "water": "arrow",  # 不再使用 thunder 型塔，水元素以箭塔型呈現（效果仍由元素 slow 觸發）
                 "land": "arrow",   # 例如防禦/更高傷害（可在 arrow 上設 buff）
                 "thunder": "thunder",
+                "ice": "ice",
+                "poison": "poison",
             }
             new_type = mapping.get(card, "arrow")
             gold -= spend
@@ -3146,7 +3271,7 @@ def main():
         if running and life>0:
             for _ in range(speed):
                 tick += 1
-                spawn_logic(); move_creeps(); towers_step(); bullets_step()
+                spawn_logic(); move_creeps(); towers_step(); bullets_step(); poison_clouds_step()
         # 無論是否暫停：當不再出怪且場上沒有怪時，才抽下一波預告出口（支援多出口）
         if not wave_incoming and next_spawns is None and not creeps and SPAWNS:
             next_spawns = choose_wave_spawns()

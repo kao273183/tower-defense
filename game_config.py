@@ -118,6 +118,20 @@ TOWER_LEVEL_RULES = {
         'range': [3, 3, 4, 4, 4, 5],
         'rof': [2.0, 2.4, 2.8, 3.2, 3.6, 4.0],
     },
+    'ice': {
+        'max_level': 5,
+        'atk_base': 1,
+        'atk_growth': 1,
+        'range': [1, 1, 1, 1, 1, 1],
+        'rof': [1.5, 1.7, 1.9, 2.1, 2.3, 2.5],
+    },
+    'poison': {
+        'max_level': 5,
+        'atk_base': 2,
+        'atk_growth': 1,
+        'range': [2, 3, 4, 4, 4, 4],
+        'rof': [1.0, 1.1, 1.2, 1.3, 1.4, 1.5],
+    },
 }
 
 # 元素塔圖片設定（可自行新增元素）
@@ -128,7 +142,7 @@ ELEMENT_TOWER_IMAGES = {
     'wind':    "assets/pic/windtower.png",
     'thunder': "assets/pic/thunder_tower.png",
     'ice':     "assets/pic/icetower.png",
-    'poison':  "assets/pic/poisotower.png",
+    'poison':  "assets/pic/poisontower.png",
 }
 
 # ==== 元素塔特效 ====
@@ -162,6 +176,21 @@ ELEMENT_EFFECTS = {
         'description': '連鎖閃電攻擊額外敵人',
         'base_targets': 2,
         'targets_per_lv': 1
+    },
+    'ice': {
+        'type': 'freeze',
+        'description': '短暫冰凍敵人，等級越高凍結越久',
+        'duration': 0.5,
+        'duration_per_lv': 0.1
+    },
+    'poison': {
+        'type': 'poison_cloud',
+        'description': '在地面形成劇毒霧氣，影響範圍逐級擴大',
+        'radius': 2.0,
+        'radius_per_lv': 0.5,
+        'duration': 2.0,
+        'tick_interval': 15,
+        'dmg_ratio': 0.3
     }
 }
 # ==== 怪物數值（可獨立調平衡）====
