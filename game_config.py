@@ -50,6 +50,7 @@ CARD_RATES = [
     {'type': 'land',    'weight': 2},
     {'type': 'wind',    'weight': 2},
     {'type': 'upgrade', 'weight': 2},
+    {'type': 'poison', 'weight': 50},
     {'type': 'lumberyard', 'weight': 10},#伐木場
     {'type': '1money', 'weight': 20},#金幣卡
     {'type': '2money', 'weight': 10},#金幣卡

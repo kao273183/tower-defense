@@ -186,8 +186,6 @@ CARD_IMAGES = {
     "thunder": "assets/pic/lightningCard.png",
     "ice": "assets/pic/iceCard.png",
     "poison": "assets/pic/poisonCard.png",
-    'ice': 'assets/pic/iceCard.png',
-    'poison': 'assets/pic/poisonCard.png'
 }
 
 # 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
@@ -1086,9 +1084,9 @@ try:
                 ELEMENT_TOWER_IMGS[_elem] = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
         except Exception:
             pass
-    if os.path.exists(THUNDER_TOWER_IMG_PATH):
-        _raw = pygame.image.load(THUNDER_TOWER_IMG_PATH).convert_alpha()
-        THUNDER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    #if os.path.exists(THUNDER_TOWER_IMG_PATH):
+    #   _raw = pygame.image.load(THUNDER_TOWER_IMG_PATH).convert_alpha()
+    #    THUNDER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
 
     #伐木場
     if os.path.exists(LUMBERYARD_IMG_PATH):
@@ -1855,7 +1853,7 @@ def draw_map():
 
             # 覆蓋伐木場圖示
             if (r, c) in lumberyards:
-                yard_img = ELEMENT_TOWER_IMGS.get('wind') or LUMBERYARD_IMG
+                yard_img = LUMBERYARD_IMG
                 if yard_img:
                     img_rect = yard_img.get_rect(center=(x + CELL//2, y + CELL//2))
                     screen.blit(yard_img, img_rect)
