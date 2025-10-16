@@ -1,7 +1,6 @@
 # ==== 視窗 / 地圖 ====
 import random
 
-from main import THUNDER_TOWER_IMG
 
 W = 960
 H = 640
@@ -63,7 +62,9 @@ CREEP_ATTACK_GROWTH = 0.02  # 每波攻擊力增加 2%
 
 # ==== 元素融合設定 ====
 ELEMENT_FUSIONS = {
-    ('wind', 'water'): 'thunder',
+    ('fire', 'water'): 'thunder',
+    ('wind','water'): 'ice',
+    ('fire', 'land'): 'poison',
 }
 
 # ===== 塔數值（可獨立調平衡）====# game_config.py
@@ -117,6 +118,17 @@ TOWER_LEVEL_RULES = {
         'range': [3, 3, 4, 4, 4, 5],
         'rof': [2.0, 2.4, 2.8, 3.2, 3.6, 4.0],
     },
+}
+
+# 元素塔圖片設定（可自行新增元素）
+ELEMENT_TOWER_IMAGES = {
+    'fire':    "assets/pic/firetower.png",
+    'water':   "assets/pic/watertower.png",
+    'land':    "assets/pic/landtower.png",
+    'wind':    "assets/pic/windtower.png",
+    'thunder': "assets/pic/thunder_tower.png",
+    'ice':     "assets/pic/icetower.png",
+    'poison':  "assets/pic/poisotower.png",
 }
 
 # ==== 元素塔特效 ====
@@ -195,6 +207,7 @@ TOWER_IMG_PATHS = {
     2: "assets/pic/tower_lv3.png",
     3: "assets/pic/tower_lv3.png",
 }
+
 ROCKET_TOWER_IMG_PATH  = "assets/pic/firetower.png"
 WATER_TOWER_IMG_PATH = "assets/pic/watertower.png"
 LAND_TOWER_IMG_PATH  = "assets/pic/landtower.png"

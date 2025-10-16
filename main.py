@@ -18,7 +18,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.72-Beta"
+TITLENAME = "塔路之戰-V0.0.73-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -180,6 +180,7 @@ CARD_IMAGES = {
     "bg":      "assets/pic/BgCard.png",        # 卡底背景
     "lumberyard": "assets/pic/lumberyardCard.png",#伐物場
     "thunder": "assets/pic/lightningCard.png",
+    'ice': 'assets/pic/iceCard.png',
 }
 
 # 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
@@ -449,19 +450,20 @@ TOWER_IMG_SIZE  = 36  # 圖片縮放邊長（像素）
 
 ROCKET_TOWER_IMG       = None
 ROCKET_TOWER_IMG_PATH  = "assets/pic/rocket_tower.png"
-THUNDER_TOWER_IMG      = None
 
-# 四元素塔 ICON（依元素顯示）
-FIRE_TOWER_IMG  = None
-WATER_TOWER_IMG = None
-LAND_TOWER_IMG  = None
-WIND_TOWER_IMG  = None
-
-FIRE_TOWER_IMG_PATH  = "assets/pic/firetower.png"
-WATER_TOWER_IMG_PATH = "assets/pic/watertower.png"
-LAND_TOWER_IMG_PATH  = "assets/pic/landtower.png"
-WIND_TOWER_IMG_PATH  = "assets/pic/windtower.png"
-THUNDER_TOWER_IMG_PATH = "assets/pic/thundertower.png"
+DEFAULT_ELEMENT_TOWER_PATHS = {
+    'fire':    "assets/pic/firetower.png",
+    'water':   "assets/pic/watertower.png",
+    'land':    "assets/pic/landtower.png",
+    'wind':    "assets/pic/windtower.png",
+    'thunder': "assets/pic/thunder_tower.png",
+}
+ELEMENT_TOWER_IMAGE_PATHS = dict(DEFAULT_ELEMENT_TOWER_PATHS)
+if hasattr(CFG, 'ELEMENT_TOWER_IMAGES') and isinstance(CFG.ELEMENT_TOWER_IMAGES, dict):
+    for _elem, _path in CFG.ELEMENT_TOWER_IMAGES.items():
+        if isinstance(_elem, str) and isinstance(_path, str):
+            ELEMENT_TOWER_IMAGE_PATHS[_elem] = _path
+ELEMENT_TOWER_IMGS = {}
 # --- 伐木場 ---
 LUMBERYARD_IMG_PATH = "assets/pic/lumberyard.png"
 LUMBERYARD_IMG = None
@@ -1016,18 +1018,15 @@ try:
     
 
     # 四元素圖示（用於依元素覆蓋顯示）
-    if os.path.exists(FIRE_TOWER_IMG_PATH):
-        _raw = pygame.image.load(FIRE_TOWER_IMG_PATH).convert_alpha()
-        FIRE_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
-    if os.path.exists(WATER_TOWER_IMG_PATH):
-        _raw = pygame.image.load(WATER_TOWER_IMG_PATH).convert_alpha()
-        WATER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
-    if os.path.exists(LAND_TOWER_IMG_PATH):
-        _raw = pygame.image.load(LAND_TOWER_IMG_PATH).convert_alpha()
-        LAND_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
-    if os.path.exists(WIND_TOWER_IMG_PATH):
-        _raw = pygame.image.load(WIND_TOWER_IMG_PATH).convert_alpha()
-        WIND_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+    for _elem, _path in ELEMENT_TOWER_IMAGE_PATHS.items():
+        if not _path:
+            continue
+        try:
+            if os.path.exists(_path):
+                _raw = pygame.image.load(_path).convert_alpha()
+                ELEMENT_TOWER_IMGS[_elem] = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
+        except Exception:
+            pass
     if os.path.exists(THUNDER_TOWER_IMG_PATH):
         _raw = pygame.image.load(THUNDER_TOWER_IMG_PATH).convert_alpha()
         THUNDER_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
@@ -1750,7 +1749,7 @@ def draw_map():
 
             # 覆蓋伐木場圖示
             if (r, c) in lumberyards:
-                yard_img = LUMBERYARD_IMG
+                yard_img = ELEMENT_TOWER_IMGS.get('wind') or LUMBERYARD_IMG
                 if yard_img:
                     img_rect = yard_img.get_rect(center=(x + CELL//2, y + CELL//2))
                     screen.blit(yard_img, img_rect)
@@ -1786,15 +1785,7 @@ def draw_tower_icon(t):
 
     # 若有元素，優先用對應的元素圖示覆蓋顯示
     elem = t.get('element')
-    elem_img = None
-    if elem:
-        elem_img = {
-            'fire':  FIRE_TOWER_IMG,
-            'water': WATER_TOWER_IMG,
-            'land':  LAND_TOWER_IMG,
-            'wind':  WIND_TOWER_IMG,
-            'thunder': THUNDER_TOWER_IMG,
-        }.get(elem)
+    elem_img = ELEMENT_TOWER_IMGS.get(elem) if elem else None
 
     if elem_img:
         rect = elem_img.get_rect(center=(cx, cy))
