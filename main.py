@@ -17,7 +17,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.7-Beta"
+TITLENAME = "塔路之戰-V0.0.71-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -526,14 +526,16 @@ TOWER_TYPES = {
         3: {'atk': 4, 'range': 4, 'rof': 3.5},
     },
 }
+ARROW_EVOLVE_LEVEL = getattr(CFG, 'ARROW_EVOLVE_LEVEL', 2)
 
-# ---- Optional: override tower attack from external config (game_config.py) ----
+# ---- Optional: override tower stats from external config (game_config.py) ----
 def _apply_tower_overrides_from_cfg():
     """
     支援三種覆蓋方式（擇一或混用）：
     1) 直接提供完整的 TOWER_TYPES 於 game_config.py
-    2) 只提供每塔各等級攻擊力：TOWER_ATK = {'arrow':[...], 'rocket':[...], 'thunder':[...]}
-    3) 只提供倍率：TOWER_ATK_MULT = {'arrow':1.2, 'rocket':0.9, ...}
+    2) 透過 TOWER_LEVEL_RULES 給定最大等級與攻擊成長、自訂 range/rof
+    3) 只提供每塔各等級攻擊力：TOWER_ATK = {'arrow':[...], 'rocket':[...], 'thunder':[...]}
+    4) 只提供倍率：TOWER_ATK_MULT = {'arrow':1.2, 'rocket':0.9, ...}
     """
     global TOWER_TYPES
     try:
@@ -541,6 +543,51 @@ def _apply_tower_overrides_from_cfg():
         if hasattr(CFG, 'TOWER_TYPES') and isinstance(CFG.TOWER_TYPES, dict):
             TOWER_TYPES = CFG.TOWER_TYPES
             return
+        # 2) 依照成長規則重建
+        level_rules = getattr(CFG, 'TOWER_LEVEL_RULES', None)
+        if isinstance(level_rules, dict) and level_rules:
+            def _pick(seq, idx, fallback):
+                if isinstance(seq, (list, tuple)):
+                    if not seq:
+                        return fallback
+                    if idx < len(seq):
+                        return seq[idx]
+                    return seq[-1]
+                if isinstance(seq, dict):
+                    return seq.get(idx, fallback)
+                if seq is not None:
+                    return seq
+                return fallback
+            for ttype, rule in level_rules.items():
+                try:
+                    max_level = int(rule.get('max_level', 3))
+                except Exception:
+                    max_level = 3
+                max_level = max(0, max_level)
+                try:
+                    atk_base = float(rule.get('atk_base', 1))
+                except Exception:
+                    atk_base = 1.0
+                try:
+                    atk_growth = float(rule.get('atk_growth', 1))
+                except Exception:
+                    atk_growth = 1.0
+                range_seq = rule.get('range')
+                rof_seq = rule.get('rof')
+                existing = TOWER_TYPES.get(ttype, {})
+                default_range = existing.get(0, {}).get('range', 2)
+                default_rof = existing.get(0, {}).get('rof', 1.0)
+                new_levels = {}
+                for lv in range(max_level + 1):
+                    atk_val = atk_base + atk_growth * lv
+                    rng_val = _pick(range_seq, lv, default_range)
+                    rof_val = _pick(rof_seq, lv, default_rof)
+                    new_levels[lv] = {
+                        'atk': max(1, int(round(atk_val))),
+                        'range': float(rng_val) if isinstance(rng_val, (int, float)) else default_range,
+                        'rof': float(rof_val) if isinstance(rof_val, (int, float)) else default_rof,
+                    }
+                TOWER_TYPES[ttype] = new_levels
         # 2) 局部修改 atk 數值
         atk_cfg = getattr(CFG, 'TOWER_ATK', None)
         if isinstance(atk_cfg, dict):
@@ -1168,6 +1215,15 @@ def choose_wave_spawns():
     k = min(k, n)
     return random.sample(SPAWNS, k)
 
+def get_max_tower_level(ttype):
+    levels = TOWER_TYPES.get(ttype, {})
+    if not levels:
+        return 0
+    try:
+        return max(int(k) for k in levels.keys())
+    except Exception:
+        return max(levels.keys())
+
 def update_lumberyards(dt_ms):
     """依據時間流逝累積伐木場產出的木材。"""
     global _wood_timer_acc, wood_stock
@@ -1175,7 +1231,7 @@ def update_lumberyards(dt_ms):
         return
     if WOOD_PER_SECOND_PER_YARD <= 0:
         return
-    dt = max(0.0, float(dt_ms) / 1500.0)
+    dt = max(0.0, float(dt_ms) / 1000.0)
     _wood_timer_acc += len(lumberyards) * WOOD_PER_SECOND_PER_YARD * dt
     gained = int(_wood_timer_acc)
     if gained >= 1:
@@ -1401,7 +1457,7 @@ def draw_help_screen():
     screen.blit(title, (W//2 - title.get_width()//2, 120))
     lines = [
         "D抽卡  左鍵使用卡片建塔/升級｜S 回收｜C 升級主堡",
-        "可抽到：普通塔(10)、元素卡(5)、升級卡(0)，升級卡可將任一塔升到最高 Lv3",
+        "可抽到：普通塔(10)、元素卡(5)、升級卡(0)，升級卡可將任一塔升到最高等級",
         "1/2/3 調整速度",
         "每波開始前：右上顯示開始/暫停，紅箭頭預告下一個 S 出口",
         "清空當波怪物後，才會顯示下一波預告",
@@ -1777,7 +1833,12 @@ def repair_castle_with_wood(mult=1):
 # 例：第 1 波=1.01x，第 10 波≈1.1046x
 def reward_for(kind):
     base = CREEP.get(kind, {}).get('reward', 1)
-    mult = 1.01 ** max(0, int(wave))  # 與血量一致：用 1.01 ** wave
+    growth = getattr(CFG, 'CREEP_REWARD_GROWTH', 0.02)
+    try:
+        growth = float(growth)
+    except Exception:
+        growth = 0.02
+    mult = (1.0 + growth) ** max(0, int(wave))
     return max(1, int(round(base * mult)))
 
 def creep_attack_value(creep):
@@ -1793,7 +1854,14 @@ def creep_attack_value(creep):
             atk = int(base)
         except (TypeError, ValueError):
             atk = 1
-    return max(0, atk)
+    growth = getattr(CFG, 'CREEP_ATTACK_GROWTH', 0.02)
+    try:
+        growth = float(growth)
+    except Exception:
+        growth = 0.02
+    wave_idx = max(0, int(wave))
+    scaled = atk * ((1.0 + growth) ** wave_idx)
+    return max(0, int(round(scaled)))
 
 def draw_upgrades():
     # 升級特效：在塔的位置顯示 LevelUp 圖示，往上飄並淡出
@@ -2131,7 +2199,7 @@ def upgrade_tower_at(r, c):
     for t in towers:
         if t['r']==r and t['c']==c:
             # 進化點：箭塔等級2再升級→分支（需額外收費）
-            if t['type'] == 'arrow' and t['level'] == 2:
+            if t['type'] == 'arrow' and t['level'] == ARROW_EVOLVE_LEVEL:
                 # 進化為分支塔需要花費
                 branch = random.choice(['rocket', 'thunder'])
                 evolve_cost = get_evolve_cost(branch)
@@ -2145,6 +2213,10 @@ def upgrade_tower_at(r, c):
                 upgrades.append({'x': cx, 'y': cy - 8, 'ttl': LEVELUP_TTL})
                 sfx(SFX_LEVELUP)
                 add_notice(f"- ${evolve_cost} 進化成功：{branch} 塔", (170, 220, 255))
+                return
+            max_lv = get_max_tower_level(t.get('type','arrow'))
+            if t.get('level', 0) >= max_lv:
+                add_notice("此塔已達最高等級", (255,180,120))
                 return
             # 一般升級費用
             cost = get_upgrade_cost(t)
@@ -2376,9 +2448,9 @@ def use_card_on_grid(r, c):
     if card == "upgrade":
         for t in towers:
             if t['r'] == r and t['c'] == c:
-                max_lv = 3
+                max_lv = get_max_tower_level(t.get('type','arrow'))
                 if t.get('level', 0) >= max_lv:
-                    add_notice("此塔已是最高等級 (Lv3)", (255,180,120))
+                    add_notice("此塔已達最高等級", (255,180,120))
                     return
                 # 消耗卡片（不扣金幣）
                 hand.pop(card_index)

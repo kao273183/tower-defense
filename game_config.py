@@ -32,9 +32,9 @@ PRICES = {
         # 'thunder': 12,
     },
     'upgrade': {
-        'arrow':  [10, 15, 20],
-        'rocket': [40, 50],
-        'thunder':[40, 50],
+        'arrow':  [10, 15, 20, 25, 30],
+        'rocket': [40, 50, 60, 70, 80],
+        'thunder':[40, 50, 60, 70, 80],
     },
     'evolve': {
     'rocket': 60,
@@ -55,43 +55,60 @@ CARD_RATES = [
     {'type': '3money', 'weight': 5},#金幣卡
 ]
 
+# ==== 怪物成長設定 ====
+CREEP_REWARD_GROWTH = 0.02  # 每波擊殺金幣增加 2%
+CREEP_ATTACK_GROWTH = 0.02  # 每波攻擊力增加 2%
+
 # ===== 塔數值（可獨立調平衡）====# game_config.py
-TOWER_TYPES = {
+TOWER_LEVEL_RULES = {
     'arrow': {
-        0: {'atk': 1, 'range': 2, 'rof': 1.0},
-        1: {'atk': 2, 'range': 2, 'rof': 1.2},
-        2: {'atk': 3, 'range': 3, 'rof': 1.6},
-        3: {'atk': 4, 'range': 3, 'rof': 2.0},
+        'max_level': 5,
+        'atk_base': 1,
+        'atk_growth': 1,
+        'range': [2, 2, 3, 3, 4, 4],
+        'rof': [1.0, 1.2, 1.5, 1.8, 2.0, 2.2],
     },
     'rocket': {
-        0: {'atk': 3, 'range': 3, 'rof': 0.8},
-        1: {'atk': 4, 'range': 3, 'rof': 1.0},
-        2: {'atk': 5, 'range': 3, 'rof': 1.2},
-        3: {'atk': 6, 'range': 4, 'rof': 1.4},
+        'max_level': 5,
+        'atk_base': 3,
+        'atk_growth': 1,
+        'range': [3, 3, 3, 4, 4, 4],
+        'rof': [0.8, 1.0, 1.2, 1.4, 1.6, 1.8],
     },
-    'fire': {      # 火元素塔：高攻擊中速
-        0: {'atk': 4, 'range': 3, 'rof': 1.2},
-        1: {'atk': 6, 'range': 3, 'rof': 1.4},
-        2: {'atk': 8, 'range': 4, 'rof': 1.6},
-        3: {'atk': 10, 'range': 4, 'rof': 1.8},
+    'thunder': {
+        'max_level': 5,
+        'atk_base': 3,
+        'atk_growth': 1,
+        'range': [3, 3, 4, 4, 5, 5],
+        'rof': [1.2, 1.4, 1.6, 1.8, 2.0, 2.2],
     },
-    'water': {     # 水元素塔：中攻擊、高減速
-        0: {'atk': 2, 'range': 4, 'rof': 1.5},
-        1: {'atk': 3, 'range': 4, 'rof': 1.8},
-        2: {'atk': 4, 'range': 5, 'rof': 2.0},
-        3: {'atk': 5, 'range': 5, 'rof': 2.2},
+    'fire': {
+        'max_level': 5,
+        'atk_base': 4,
+        'atk_growth': 2,
+        'range': [3, 3, 4, 4, 4, 5],
+        'rof': [1.2, 1.4, 1.6, 1.8, 2.0, 2.2],
     },
-    'land': {      # 土元素塔：高防禦、穩定攻擊
-        0: {'atk': 3, 'range': 3, 'rof': 1.0},
-        1: {'atk': 4, 'range': 3, 'rof': 1.2},
-        2: {'atk': 5, 'range': 4, 'rof': 1.3},
-        3: {'atk': 7, 'range': 4, 'rof': 1.4},
+    'water': {
+        'max_level': 5,
+        'atk_base': 2,
+        'atk_growth': 1,
+        'range': [4, 4, 5, 5, 6, 6],
+        'rof': [1.5, 1.7, 1.9, 2.1, 2.3, 2.5],
     },
-    'wind': {      # 風元素塔：低攻擊、高速連射
-        0: {'atk': 1, 'range': 3, 'rof': 2.0},
-        1: {'atk': 2, 'range': 3, 'rof': 2.5},
-        2: {'atk': 3, 'range': 4, 'rof': 3.0},
-        3: {'atk': 4, 'range': 4, 'rof': 3.5},
+    'land': {
+        'max_level': 5,
+        'atk_base': 3,
+        'atk_growth': 1,
+        'range': [3, 3, 4, 4, 5, 5],
+        'rof': [1.0, 1.1, 1.2, 1.3, 1.4, 1.5],
+    },
+    'wind': {
+        'max_level': 5,
+        'atk_base': 1,
+        'atk_growth': 1,
+        'range': [3, 3, 4, 4, 4, 5],
+        'rof': [2.0, 2.4, 2.8, 3.2, 3.6, 4.0],
     },
 }
 
@@ -121,15 +138,6 @@ ELEMENT_EFFECTS = {
         'base_knockback': 1,  # 初始擊退格數
         'scale_per_lv': 1     # 每級增加 1 格擊退距離
     }
-}
-TOWER_ATK = {
-    'arrow':  [2, 3, 4, 5],   # Lv0~Lv3
-    'rocket': [4, 6, 8, 10],
-    'thunder':[3, 4, 5, 7],
-}
-TOWER_ATK_MULT = {
-    'arrow': 1.2,    # 全等級 +20%
-    'rocket': 0.9,   # 全等級 -10%
 }
 # ==== 怪物數值（可獨立調平衡）====
 CREEP = {
