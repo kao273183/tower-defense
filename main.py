@@ -18,7 +18,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.75-Beta"
+TITLENAME = "塔路之戰-V0.0.76-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -1627,6 +1627,9 @@ def draw_panel():
     fusion_label = SMALL.render("融合元素", True, (235, 242, 255))
     screen.blit(fusion_label, (FUSION_BTN_RECT.x + (btn_w - fusion_label.get_width())//2,
                                FUSION_BTN_RECT.y + (btn_h - fusion_label.get_height())//2))
+    if fusion_available:
+        fusion_info = SMALL.render("火+風→雷｜風+水→冰｜土+水→毒", True, (210, 220, 235))
+        screen.blit(fusion_info, (btn_x, fusion_y + btn_h + 4))
     if not wave_incoming and next_spawns:
         nr, nc = (next_spawns[0] if next_spawns else (0,0))
         info = FONT.render(f"＊＊下一波出口：怪物 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
@@ -1816,9 +1819,10 @@ def draw_help_screen():
         dim = pygame.Surface((W,H), pygame.SRCALPHA); dim.fill((0,0,0,120)); screen.blit(dim,(0,0))
     title = BIG.render("操作說明", True, (250, 245, 255))
     screen.blit(title, (W//2 - title.get_width()//2, 120))
-    lines = [
+    left_lines = [
         "D抽卡  左鍵使用卡片建塔/升級｜S 回收｜C 升級主堡",
-        "可抽到：普通塔(10)、元素卡(5)、升級卡(0)，升級卡可將任一塔升到最高等級",
+        "可抽到：普通塔(10)、元素卡(5)、升級卡(0)",
+        "升級卡可將任一塔升到最高等級",
         "1/2/3 調整速度",
         "每波開始前：右上顯示開始/暫停，紅箭頭預告下一個 S 出口",
         "清空當波怪物後，才會顯示下一波預告",
@@ -1826,6 +1830,17 @@ def draw_help_screen():
         "木材修復：點擊修復按鈕或按 F (Shift+F 一次使用多份) 來回復主堡 HP",
         "融合元素：點擊面板按鈕選擇手牌元素進行合成",
         "按 Enter/Space 回到遊戲，或 Esc 返回主選單"
+    ]
+    right_lines = [
+        "元素融合表：",
+        "火 + 風 → 雷電",
+        "風 + 水 → 冰",
+        "土 + 水 → 毒",
+        "",
+        "更多提示：",
+        "地圖選單：按 R 可使用隨機地圖開局",
+        "手牌：右鍵丟棄卡片 + $1 金幣",
+        "Shift+F 修復一次可消耗多份木材",
     ]
     # 額外說明：隨機地圖與右鍵丟棄
     try:
@@ -1835,11 +1850,20 @@ def draw_help_screen():
         ]
     except Exception:
         pass
-    y = 180
-    for ln in lines:
+    left_x = W//2 - 420
+    right_x = W//2 + 170
+    base_y = 180
+    line_gap = 32
+    y = base_y
+    for ln in left_lines:
         t = FONT.render(ln, True, (220, 228, 240))
-        screen.blit(t, (W//2 - t.get_width()//2, y))
-        y += 30
+        screen.blit(t, (left_x, y))
+        y += line_gap
+    y = base_y
+    for ln in right_lines:
+        t = FONT.render(ln, True, (220, 228, 240))
+        screen.blit(t, (right_x, y))
+        y += line_gap
 
 def draw_map():
     for r in range(ROWS):
@@ -3088,7 +3112,7 @@ def handle_click(pos):
         # 點擊空白不做事
         return
     elif game_state == GAME_HELP:
-        game_state = GAME_PLAY
+        go_menu()
         return
 
     # --- 遊戲中：去抖以防止誤觸，但允許「選牌後馬上點地圖」 ---
@@ -3159,6 +3183,9 @@ def handle_right_click(pos):
         return
     mx, my = pos
     # 只處理在遊戲中
+    if game_state == GAME_HELP:
+        go_menu()
+        return
     if game_state not in (GAME_PLAY,):
         return
     # 檢查是否點到手牌列：右鍵丟棄

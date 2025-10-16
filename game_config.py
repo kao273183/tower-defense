@@ -62,9 +62,9 @@ CREEP_ATTACK_GROWTH = 0.02  # 每波攻擊力增加 2%
 
 # ==== 元素融合設定 ====
 ELEMENT_FUSIONS = {
-    ('fire', 'water'): 'thunder',
+    ('fire', 'wind'): 'thunder',
     ('wind','water'): 'ice',
-    ('fire', 'land'): 'poison',
+    ('land', 'water'): 'poison',
 }
 
 # ===== 塔數值（可獨立調平衡）====# game_config.py
