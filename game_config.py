@@ -45,11 +45,11 @@ PRICES = {
 #卡片機率
 CARD_RATES = [
     {'type': 'basic',   'weight': 45},
-    {'type': 'fire',    'weight': 2},
-    {'type': 'water',   'weight': 2},
-    {'type': 'land',    'weight': 2},
-    {'type': 'wind',    'weight': 2},
-    {'type': 'upgrade', 'weight': 2},
+    {'type': 'fire',    'weight': 5},
+    {'type': 'water',   'weight': 5},
+    {'type': 'land',    'weight': 5},
+    {'type': 'wind',    'weight': 5},
+    {'type': 'upgrade', 'weight': 5},
     {'type': 'lumberyard', 'weight': 10},#伐木場
     {'type': '1money', 'weight': 20},#金幣卡
     {'type': '2money', 'weight': 10},#金幣卡
