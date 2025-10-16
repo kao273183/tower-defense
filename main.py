@@ -295,7 +295,9 @@ def _card_display_name(name):
         '2money': '新增金幣2元',
         '3money': '新增金幣3元',
         'lumberyard':'伐木場',
-        'thunder':'雷電元素'
+        'thunder':'雷電元素',
+        'ice':'冰元素',
+        'poison':'毒元素'
     }
     return mapping.get(name, name)
 # === 卡片圖快取與縮放 ===
@@ -706,6 +708,10 @@ def _get_elem_cfg(elem, lvl):
         base = {'type':'knockback','base_knockback':1,'scale_per_lv':1}
     elif elem == 'thunder':
         base = {'type':'chain','base_targets':2,'targets_per_lv':1}
+    elif elem == 'ice':
+        base = {'type':'freeze','duration':0.5,'duration_per_lv':0.0}
+    elif elem == 'poison':
+        base = {'type':'poison_cloud','radius':2.0,'duration':2.0,'duration_per_lv':0.0}
     else:
         return None
     merged = dict(base)
@@ -726,6 +732,8 @@ def _get_elem_cfg(elem, lvl):
         merged['duration_total'] = max(0.05, dur)
     if merged.get('type') == 'poison_cloud':
         merged['radius_total'] = float(merged.get('radius', 2.0)) + float(merged.get('radius_per_lv', 0.0)) * max(0, int(lvl))
+        dur = float(merged.get('duration', 2.0)) + float(merged.get('duration_per_lv', 0.0)) * max(0, int(lvl))
+        merged['duration_total'] = max(0.1, dur)
     merged['level'] = lvl
     return merged
 
@@ -816,6 +824,8 @@ def _perform_chain_lightning(primary, elem_cfg, bullet):
         last = next_target
 
 def _spawn_poison_cloud(x, y, elem_cfg, atk_val):
+    x = int(round(x))
+    y = int(round(y))
     duration = float(elem_cfg.get('duration_total', elem_cfg.get('duration', 2.0)))
     ttl = max(1, int(round(duration * 60)))
     radius_units = float(elem_cfg.get('radius_total', elem_cfg.get('radius', 2.0)))
@@ -1570,10 +1580,12 @@ def draw_poison_clouds():
         if radius <= 0:
             continue
         alpha_ratio = cloud['ttl'] / float(cloud.get('ttl_max', cloud['ttl']) or 1)
-        alpha = max(40, min(160, int(160 * alpha_ratio)))
+        alpha = max(50, min(180, int(200 * alpha_ratio)))
         surface = pygame.Surface((radius*2, radius*2), pygame.SRCALPHA)
-        pygame.draw.circle(surface, (60, 200, 120, alpha), (radius, radius), radius)
-        pygame.draw.circle(surface, (40, 160, 80, int(alpha*0.6)), (radius, radius), max(10, int(radius*0.7)))
+        center = (radius, radius)
+        pygame.draw.circle(surface, (60, 200, 120, int(alpha*0.7)), center, radius)
+        pygame.draw.circle(surface, (40, 160, 90, alpha), center, max(12, int(radius*0.75)))
+        pygame.draw.circle(surface, (20, 110, 60, int(alpha*0.5)), center, max(6, int(radius*0.45)))
         screen.blit(surface, (cloud['x'] - radius, cloud['y'] - radius))
 
 def draw_panel():
