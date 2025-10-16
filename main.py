@@ -18,7 +18,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.73-Beta"
+TITLENAME = "塔路之戰-V0.0.74-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -181,6 +181,7 @@ CARD_IMAGES = {
     "lumberyard": "assets/pic/lumberyardCard.png",#伐物場
     "thunder": "assets/pic/lightningCard.png",
     'ice': 'assets/pic/iceCard.png',
+    'poison': 'assets/pic/poisonCard.png'
 }
 
 # 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
