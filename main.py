@@ -1949,8 +1949,7 @@ def draw_monster_icon(m):
     if img:
         rect = img.get_rect(center=(cx, cy))
         screen.blit(img, rect)
-        return
-    if mtype == "runner":
+    elif mtype == "runner":
         if RUNNER_IMG:
             rect = RUNNER_IMG.get_rect(center=(cx, cy))
             screen.blit(RUNNER_IMG, rect)
