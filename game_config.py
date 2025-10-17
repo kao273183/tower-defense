@@ -140,7 +140,7 @@ ELEMENT_TOWER_IMAGES = {
     'water':   "assets/pic/watertower.png",
     'land':    "assets/pic/landtower.png",
     'wind':    "assets/pic/windtower.png",
-    'thunder': "assets/pic/thunder_tower.png",
+    'thunder': "assets/pic/thundertower.png",
     'ice':     "assets/pic/icetower.png",
     'poison':  "assets/pic/poisontower.png",
 }

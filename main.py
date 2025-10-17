@@ -18,13 +18,13 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.77-Beta"
+TITLENAME = "塔路之戰-V0.0.78-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
 except Exception:
     pass
-towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]; lightning_effects=[]
 W, H = 1280, 720
 CELL = 40
 # --- 地圖格數與畫面偏移 ---
@@ -51,7 +51,7 @@ def apply_external_config():
 
 # 套用一次外部設定（需在載入圖片與地圖之前）
 apply_external_config()
-towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]; lightning_effects=[]
 current_spawns = None  # 本波實際出怪口（可為多個座標）
 next_spawns = None     # 下一波預告出怪口清單（2~3 或僅 1 個）
 _spawn_rot = 0         # 本波輪替用索引，於每次出怪遞增
@@ -465,7 +465,7 @@ DEFAULT_ELEMENT_TOWER_PATHS = {
     'water':   "assets/pic/watertower.png",
     'land':    "assets/pic/landtower.png",
     'wind':    "assets/pic/windtower.png",
-    'thunder': "assets/pic/thunder_tower.png",
+    'thunder': "assets/pic/thundertower.png",
 }
 ELEMENT_TOWER_IMAGE_PATHS = dict(DEFAULT_ELEMENT_TOWER_PATHS)
 if hasattr(CFG, 'ELEMENT_TOWER_IMAGES') and isinstance(CFG.ELEMENT_TOWER_IMAGES, dict):
@@ -486,6 +486,14 @@ LEVELUP_RISE      = 0.5
 # --- 建塔 / 升級成本設定 ---
 # --- 建塔 / 升級成本設定 ---
 BUILD_COST = 10  # 蓋一座箭塔消耗金幣
+
+# --- 雷電特效 ---
+LIGHTNING_IMG_PATH = "assets/pic/lightning.png"
+LIGHTNING_IMG_MAX_HEIGHT = getattr(CFG, 'LIGHTNING_IMG_MAX_HEIGHT', 180)
+LIGHTNING_IMG = None
+LIGHTNING_ARC_IMG = None
+LIGHTNING_BOLT_IMG = None
+
 
 # --- 價格表（建塔 / 升級 / 進化）---
 PRICES = {
@@ -767,6 +775,23 @@ def _apply_status_on_hit(target, elem_cfg, atk_val):
     elif etype == 'poison_cloud':
         pass
 
+def _spawn_lightning_arc(x1, y1, x2, y2, ttl=12):
+    global lightning_effects
+    if (x1 == x2) and (y1 == y2):
+        return
+    try:
+        ttl = int(ttl)
+    except Exception:
+        ttl = 12
+    ttl = max(1, ttl)
+    bolt = {
+        'start': (float(x1), float(y1)),
+        'end': (float(x2), float(y2)),
+        'ttl': ttl,
+        'ttl_max': ttl
+    }
+    lightning_effects.append(bolt)
+
 def _do_knockback(creep, grids):
     # 依路徑往回推若干格（若沒有路徑，忽略）
     route = creep.get('route') or []
@@ -809,6 +834,8 @@ def _perform_chain_lightning(primary, elem_cfg, bullet):
         cid = next_target.get('id')
         if cid is not None:
             visited.add(cid)
+        nx, ny = center_px(next_target['r'], int(next_target['c']))
+        _spawn_lightning_arc(last_x, last_y, nx, ny, ttl=12)
         cx, cy = center_px(next_target['r'], int(next_target['c']))
         hits.append({'x': cx, 'y': cy, 'ttl': 12, 'dmg': dmg, 'color': (200, 220, 255)})
         next_target['hp'] -= dmg
@@ -1082,7 +1109,32 @@ try:
     if os.path.exists(ROCKET_TOWER_IMG_PATH):
         _raw = pygame.image.load(ROCKET_TOWER_IMG_PATH).convert_alpha()
         ROCKET_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
-    
+
+    if os.path.exists(LIGHTNING_IMG_PATH):
+        try:
+            _raw = pygame.image.load(LIGHTNING_IMG_PATH).convert_alpha()
+            base = _raw
+            max_h = LIGHTNING_IMG_MAX_HEIGHT
+            if isinstance(max_h, (int, float)) and max_h > 0 and _raw.get_height() != int(max_h):
+                scale = float(max_h) / float(_raw.get_height())
+                width = max(1, int(round(_raw.get_width() * scale)))
+                height = max(1, int(round(max_h)))
+                base = pygame.transform.smoothscale(_raw, (width, height))
+            LIGHTNING_IMG = base
+            LIGHTNING_ARC_IMG = base
+            bolt_scale = getattr(CFG, 'LIGHTNING_PROJECTILE_SCALE', 0.4)
+            try:
+                bolt_scale = float(bolt_scale)
+            except Exception:
+                bolt_scale = 0.4
+            bolt_scale = max(0.05, min(1.0, bolt_scale))
+            bolt_w = max(8, int(round(base.get_width() * bolt_scale)))
+            bolt_h = max(12, int(round(base.get_height() * bolt_scale)))
+            LIGHTNING_BOLT_IMG = pygame.transform.smoothscale(base, (bolt_w, bolt_h))
+        except Exception:
+            LIGHTNING_IMG = None
+            LIGHTNING_ARC_IMG = None
+            LIGHTNING_BOLT_IMG = None
 
     # 四元素圖示（用於依元素覆蓋顯示）
     for _elem, _path in ELEMENT_TOWER_IMAGE_PATHS.items():
@@ -1359,7 +1411,7 @@ for _cname, _cfg in CREEP_CONFIG.items():
     CREEP[_cname] = merged
 
 running=False; speed=1; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
-towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[];effects = []
+towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]; lightning_effects=[]; effects = []
 lumberyards = set()
 lumberyard_blocked = set()
 wood_stock = 0
@@ -2061,9 +2113,57 @@ def draw_monster_icon(m):
 
 def draw_bullets():
     for b in bullets:
-        if len(b['trail'])>=2:
-            pygame.draw.lines(screen, (180,190,200), False, b['trail'], 2)
-        pygame.draw.circle(screen, WHITE, (int(b['x']), int(b['y'])), 3)
+        trail_color = (180, 190, 200)
+        if b.get('element') == 'thunder':
+            trail_color = (120, 200, 255)
+        if len(b['trail']) >= 2:
+            pygame.draw.lines(screen, trail_color, False, b['trail'], 2)
+        if b.get('element') == 'thunder' and LIGHTNING_BOLT_IMG:
+            angle = -math.degrees(math.atan2(b['vy'], b['vx'])) - 90
+            img = pygame.transform.rotate(LIGHTNING_BOLT_IMG, angle)
+            rect = img.get_rect(center=(int(b['x']), int(b['y'])))
+            screen.blit(img, rect)
+        else:
+            pygame.draw.circle(screen, WHITE, (int(b['x']), int(b['y'])), 3)
+
+def draw_lightning_effects():
+    if not lightning_effects:
+        return
+    alive = []
+    base_img = LIGHTNING_ARC_IMG
+    for bolt in lightning_effects:
+        x1, y1 = bolt['start']
+        x2, y2 = bolt['end']
+        ttl = bolt['ttl']
+        ttl_max = bolt.get('ttl_max', ttl if ttl > 0 else 1)
+        life_ratio = ttl / float(ttl_max) if ttl_max else 0.0
+        alpha = max(0, min(255, int(255 * life_ratio)))
+        dx = x2 - x1
+        dy = y2 - y1
+        length = math.hypot(dx, dy)
+        if length < 4:
+            bolt['ttl'] = 0
+        else:
+            if base_img:
+                scale = length / float(base_img.get_height())
+                if scale > 0:
+                    angle = -math.degrees(math.atan2(dy, dx)) - 90
+                    img = pygame.transform.rotozoom(base_img, angle, scale)
+                    img.set_alpha(alpha)
+                    rect = img.get_rect(center=(int((x1 + x2) / 2), int((y1 + y2) / 2)))
+                    screen.blit(img, rect)
+            else:
+                color = (
+                    int(160 + 80 * life_ratio),
+                    int(200 + 40 * life_ratio),
+                    255
+                )
+                width = max(1, int(3 * life_ratio))
+                pygame.draw.line(screen, color, (x1, y1), (x2, y2), width)
+        bolt['ttl'] -= 1
+        if bolt['ttl'] > 0:
+            alive.append(bolt)
+    lightning_effects[:] = alive
 
 def draw_hits():
     alive = []
@@ -2285,7 +2385,7 @@ def tower_fire(t):
     spd = 8.0
     vx, vy = dx / length * spd, dy / length * spd
     sfx(SFX_SHOOT)
-    bullets.append({
+    bullet = {
         'x': sx, 'y': sy, 'vx': vx, 'vy': vy,
         'dmg': stat['atk'] * (1.5 if ttype == 'rocket' else 1),
         'target_id': target['id'],
@@ -2293,7 +2393,10 @@ def tower_fire(t):
         'aoe': (ttype == 'rocket'),
         'element': t.get('element'),
         'tlevel': t.get('level', 0)
-    })
+    }
+    bullets.append(bullet)
+    if t.get('element') == 'thunder':
+        _spawn_lightning_arc(sx, sy, tx, ty, ttl=10)
 
 def spawn_logic():
     """
@@ -2506,8 +2609,46 @@ def bullets_step():
         target = get_creep_by_id(b['target_id'])
         if target and target['alive']:
             tx, ty = center_px(target['r'], int(target['c']))
-            if math.hypot(b['x']-tx, b['y']-ty) < 10:
-                target['hp'] -= b['dmg']; hits.append({'x':tx,'y':ty,'ttl':12,'dmg': b['dmg']}); sfx(SFX_HIT)
+            if math.hypot(b['x'] - tx, b['y'] - ty) < 10:
+                dmg = b['dmg']
+                target['hp'] -= dmg
+                hits.append({'x': tx, 'y': ty, 'ttl': 12, 'dmg': dmg})
+                sfx(SFX_HIT)
+                element = b.get('element')
+                ecfg = None
+                if element in ('water', 'land', 'wind', 'fire', 'thunder', 'ice', 'poison'):
+                    ecfg = _get_elem_cfg(element, b.get('tlevel', 0))
+                    if ecfg:
+                        etype = ecfg.get('type')
+                        if etype == 'knockback':
+                            _do_knockback(target, ecfg.get('grids', 1))
+                        elif etype == 'poison_cloud':
+                            _spawn_poison_cloud(tx, ty, ecfg, dmg)
+                        else:
+                            _apply_status_on_hit(target, ecfg, dmg)
+                        if etype == 'chain':
+                            _perform_chain_lightning(target, ecfg, b)
+                if b.get('aoe'):
+                    ax, ay = tx, ty
+                    radius = 60
+                    for m in list(creeps):
+                        if (not m['alive']) or m['id'] == target['id']:
+                            continue
+                        mx, my = center_px(m['r'], int(m['c']))
+                        if math.hypot(mx - ax, my - ay) <= radius:
+                            splash_dmg = max(1, int(round(dmg * 0.6)))
+                            m['hp'] -= splash_dmg
+                            hits.append({'x': mx, 'y': my, 'ttl': 8, 'dmg': splash_dmg})
+                            ecfg_fire = _get_elem_cfg('fire', b.get('tlevel', 0))
+                            _apply_status_on_hit(m, ecfg_fire, dmg)
+                            if m['hp'] <= 0:
+                                m['alive'] = False
+                                corpses.append({'x': mx, 'y': my, 'ttl': 24})
+                                reward_amt = reward_for(m['type'])
+                                gains.append({'x': mx, 'y': my - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+                                gold += reward_amt
+                                m['rewarded'] = True
+                                sfx(SFX_DEATH); sfx(SFX_COIN)
                 if target['hp'] <= 0:
                     target['alive'] = False
                     corpses.append({'x': tx, 'y': ty, 'ttl': 24})
@@ -2517,45 +2658,6 @@ def bullets_step():
                     target['rewarded'] = True
                     sfx(SFX_DEATH); sfx(SFX_COIN)
                 continue
-            # 元素效果（單體）
-            element = b.get('element')
-            if element in ('water','land','wind','fire','thunder','ice','poison'):
-                ecfg = _get_elem_cfg(b['element'], b.get('tlevel',0))
-                if ecfg:
-                    etype = ecfg.get('type')
-                    if etype == 'knockback':
-                        _do_knockback(target, ecfg.get('grids',1))
-                    elif etype == 'poison_cloud':
-                        _spawn_poison_cloud(tx, ty, ecfg, b['dmg'])
-                    else:
-                        _apply_status_on_hit(target, ecfg, b['dmg'])
-                    if etype == 'chain':
-                        _perform_chain_lightning(target, ecfg, b)
-                    if etype == 'poison_cloud':
-                        # 已生成毒霧，不需要保留於目標
-                        pass
-            if b.get('aoe'):
-                ax, ay = tx, ty
-                radius = 60
-                for m in list(creeps):
-                    if (not m['alive']) or m['id'] == target['id']:
-                        continue
-                    mx, my = center_px(m['r'], int(m['c']))
-                    if math.hypot(mx-ax, my-ay) <= radius:
-                        splash_dmg = max(1, int(round(b['dmg'] * 0.6)))
-                        m['hp'] -= splash_dmg
-                        hits.append({'x': mx, 'y': my, 'ttl': 8, 'dmg': splash_dmg})
-                        # 火元素：爆炸附帶灼傷
-                        ecfg = _get_elem_cfg('fire', b.get('tlevel',0))
-                        _apply_status_on_hit(m, ecfg, b['dmg'])
-                        if m['hp'] <= 0:
-                            m['alive'] = False
-                            corpses.append({'x': mx, 'y': my, 'ttl': 24})
-                            reward_amt = reward_for(m['type'])
-                            gains.append({'x': mx, 'y': my - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
-                            gold += reward_amt
-                            m['rewarded'] = True
-                            sfx(SFX_DEATH); sfx(SFX_COIN)
         if 0 <= b['x'] <= W and 0 <= b['y'] <= H and b['ttl']>0: alive.append(b)
     bullets[:] = alive
 
@@ -2575,7 +2677,7 @@ def draw_world():
     for t in towers: draw_tower_icon(t)
     draw_upgrades()
     for m in creeps: draw_monster_icon(m)
-    draw_bullets(); draw_hits(); draw_corpses(); draw_gains(); draw_selection()
+    draw_bullets(); draw_lightning_effects(); draw_hits(); draw_corpses(); draw_gains(); draw_selection()
 
 def add_tower(r,c):
     global gold, towers, ids
@@ -2659,8 +2761,8 @@ def reset_game():
     global towers, creeps, bullets, hits, corpses, gains, upgrades, lumberyards, lumberyard_blocked, poison_clouds
     global wood_stock, _wood_timer_acc, fusion_active, fusion_selection
     running=False; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
-    towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
-    towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]
+    towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]; lightning_effects=[]
+    towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]; lightning_effects=[]
     for r, c in list(lumberyard_blocked):
         if 0 <= r < ROWS and 0 <= c < COLS and MAP[r][c] == 3:
             MAP[r][c] = 0
