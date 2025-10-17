@@ -18,7 +18,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.76-Beta"
+TITLENAME = "塔路之戰-V0.0.77-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -2918,6 +2918,9 @@ def use_card_on_grid(r, c):
             return
         if tile == 2:
             add_notice("此處已有障礙物", (255,120,120))
+            return
+        if tile == 3 and (r, c) not in lumberyards:
+            add_notice("此處不可建造伐木場", (255,120,120))
             return
         if tile == 3 and (r, c) in lumberyards:
             add_notice("此格已建有伐木場", (255,180,120))
