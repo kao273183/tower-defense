@@ -18,7 +18,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.78-Beta"
+TITLENAME = "塔路之戰-V0.0.77-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -775,6 +775,47 @@ def _apply_status_on_hit(target, elem_cfg, atk_val):
     elif etype == 'poison_cloud':
         pass
 
+def _normalize_effect_name(name):
+    if name is None:
+        return None
+    if isinstance(name, str):
+        norm = name.strip().lower()
+        return norm or None
+    try:
+        norm = str(name).strip().lower()
+        return norm or None
+    except Exception:
+        return None
+
+def _creep_can_receive_effect(creep, etype):
+    if not etype:
+        return True
+    # Boss 永遠會受到效果影響（忽略任何免疫設定）
+    if creep.get('type') == 'boss':
+        return True
+    norm = _normalize_effect_name(etype)
+    if not norm:
+        return True
+    immune = creep.get('immune_effects')
+    if not immune:
+        return True
+    if isinstance(immune, str):
+        immune = {_normalize_effect_name(immune)}
+    elif isinstance(immune, (list, tuple, set)):
+        if not isinstance(immune, set):
+            immune = {_normalize_effect_name(x) for x in immune if _normalize_effect_name(x)}
+        else:
+            immune = { _normalize_effect_name(x) for x in immune }
+    else:
+        return True
+    immune.discard(None)
+    creep['immune_effects'] = immune
+    if not immune:
+        return True
+    if 'all' in immune:
+        return False
+    return norm not in immune
+
 def _spawn_lightning_arc(x1, y1, x2, y2, ttl=12):
     global lightning_effects
     if (x1 == x2) and (y1 == y2):
@@ -794,6 +835,7 @@ def _spawn_lightning_arc(x1, y1, x2, y2, ttl=12):
 
 def _do_knockback(creep, grids):
     # 依路徑往回推若干格（若沒有路徑，忽略）
+    global hits
     route = creep.get('route') or []
     wp = int(creep.get('wp', 1))
     if not route:
@@ -802,6 +844,8 @@ def _do_knockback(creep, grids):
     tr, tc = route[target_wp]
     creep['r'], creep['c'] = float(tr), float(tc)
     creep['wp'] = target_wp + 1
+    cx, cy = center_px(tr, tc)
+    hits.append({'x': int(round(cx)), 'y': int(round(cy)), 'ttl': 8, 'color': (170, 235, 255)})
 
 def _perform_chain_lightning(primary, elem_cfg, bullet):
     remaining = max(0, int(elem_cfg.get('base_targets', 2)))
@@ -1606,6 +1650,8 @@ def poison_clouds_step():
             radius_sq = radius * radius
             for m in list(creeps):
                 if not m.get('alive'):
+                    continue
+                if not _creep_can_receive_effect(m, 'poison_cloud'):
                     continue
                 cx, cy = center_px(m['r'], int(m['c']))
                 dx = cx - cloud['x']
@@ -2467,7 +2513,17 @@ def spawn_logic():
         hp_scaled  = max(1, int(round(base_hp * (1.01 ** max(0, int(wave))))))
         spd_scaled = base_speed * (1.0 + 0.03 * max(0, int(wave)))
 
-        creeps.append({
+        immune_cfg = cfg.get('immune_effects') or cfg.get('effect_immunities') or cfg.get('immune')
+        immune_set = set()
+        if immune_cfg:
+            if isinstance(immune_cfg, str):
+                immune_cfg = [immune_cfg]
+            for name in immune_cfg:
+                norm = _normalize_effect_name(name)
+                if norm:
+                    immune_set.add(norm)
+
+        creep_obj = {
             'id': ids['creep'],
             'type': kind,
             'r': float(sr), 'c': float(sc),
@@ -2477,7 +2533,11 @@ def spawn_logic():
             'attack': attack,
             'effects': {},
             'rewarded': False
-        })
+        }
+        if immune_set:
+            creep_obj['immune_effects'] = immune_set
+
+        creeps.append(creep_obj)
         ids['creep'] += 1
 
     spawn_counter += 1
@@ -2620,12 +2680,16 @@ def bullets_step():
                     ecfg = _get_elem_cfg(element, b.get('tlevel', 0))
                     if ecfg:
                         etype = ecfg.get('type')
+                        allowed = _creep_can_receive_effect(target, etype)
                         if etype == 'knockback':
-                            _do_knockback(target, ecfg.get('grids', 1))
+                            if allowed:
+                                _do_knockback(target, ecfg.get('grids', 1))
                         elif etype == 'poison_cloud':
-                            _spawn_poison_cloud(tx, ty, ecfg, dmg)
+                            if allowed:
+                                _spawn_poison_cloud(tx, ty, ecfg, dmg)
                         else:
-                            _apply_status_on_hit(target, ecfg, dmg)
+                            if allowed:
+                                _apply_status_on_hit(target, ecfg, dmg)
                         if etype == 'chain':
                             _perform_chain_lightning(target, ecfg, b)
                 if b.get('aoe'):
@@ -2640,7 +2704,8 @@ def bullets_step():
                             m['hp'] -= splash_dmg
                             hits.append({'x': mx, 'y': my, 'ttl': 8, 'dmg': splash_dmg})
                             ecfg_fire = _get_elem_cfg('fire', b.get('tlevel', 0))
-                            _apply_status_on_hit(m, ecfg_fire, dmg)
+                            if ecfg_fire and _creep_can_receive_effect(m, ecfg_fire.get('type')):
+                                _apply_status_on_hit(m, ecfg_fire, dmg)
                             if m['hp'] <= 0:
                                 m['alive'] = False
                                 corpses.append({'x': mx, 'y': my, 'ttl': 24})
