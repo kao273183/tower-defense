@@ -2,6 +2,11 @@
 import pygame, sys, math, random, os
 from collections import Counter
 from game_config import CREEP_CONFIG, get_wave_creeps
+from talent_battle_config import (
+    TALENT_POOL, RARITY_WEIGHTS_BY_TIER,
+    roll_talent_choices, apply_talent_effect,
+    format_talent_text
+)
 
 import game_config as CFG
 
@@ -16,9 +21,10 @@ V0.0.4 新增：抽卡機制
 V0.0.5 新增：地圖選擇
 V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
+v0.0.8 新增：天賦系統
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.78-Beta"
+TITLENAME = "塔路之戰-V0.0.8-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -542,6 +548,31 @@ NOTICE_X = 500
 NOTICE_Y = 610
 NOTICE_LINE_GAP = 22
 NOTICE_ALIGN_DEFAULT = 'left'  # 'left' | 'right' | 'center'
+
+# --- 天賦系統狀態 ---
+talent_state = {}
+talent_runtime = {
+    'kill_counter': 0,
+    'last_offer_wave': 0,
+    'last_cleared_wave': 0,
+}
+talent_choices = []
+talent_ui_active = False
+talent_ui_rects = []
+talent_panel_rect = None
+
+ELEMENT_ALIAS = {
+    'thunder': 'lightning',
+    'lightning': 'lightning',
+    'wind': 'wind',
+    'fire': 'fire',
+    'water': 'water',
+    'ice': 'ice',
+    'poison': 'poison',
+    'land': 'earth',
+    'earth': 'earth',
+}
+
 #基本開局
 # 開局給三張基本塔卡
 def init_starting_hand():
@@ -559,6 +590,214 @@ def add_notice(text, color=(255, 120, 120), ttl=NOTICE_TTL, x=None, y=None, alig
     })
     if len(NOTICES) > 6:
         del NOTICES[:-6]
+
+
+def _ensure_talent_refs():
+    if not talent_state:
+        return
+    refs = talent_state.setdefault('refs', {})
+    refs['PRICES'] = PRICES
+    refs['ELEMENT_EFFECTS'] = getattr(CFG, 'ELEMENT_EFFECTS', {})
+
+
+def init_talent_state():
+    global talent_state, talent_runtime, talent_choices, talent_ui_active, talent_ui_rects, talent_panel_rect
+    talent_state = {
+        'picked_talents': set(),
+        'tower_mod': {
+            'global_atk_mul': 1.0,
+            'global_rof_mul': 1.0,
+            'global_range_add': 0.0,
+            'element_mod': {},
+        },
+        'economy': {},
+        'skills': {},
+        'set_bonuses': {},
+        'refs': {},
+    }
+    talent_runtime = {
+        'kill_counter': 0,
+        'last_offer_wave': 0,
+        'last_cleared_wave': 0,
+    }
+    talent_choices = []
+    talent_ui_active = False
+    talent_ui_rects = []
+    talent_panel_rect = None
+    _ensure_talent_refs()
+
+
+def _tower_element_keys(tower):
+    keys = []
+    elem = tower.get('element')
+    ttype = tower.get('type', 'arrow')
+    for raw in filter(None, (elem, ttype)):
+        alias = ELEMENT_ALIAS.get(raw, raw)
+        if raw not in keys:
+            keys.append(raw)
+        if alias not in keys:
+            keys.append(alias)
+    return keys
+
+
+def compute_tower_stats(tower):
+    ttype = tower.get('type', 'arrow')
+    level = tower.get('level', 0)
+    base_def = TOWER_TYPES.get(ttype, {}).get(level)
+    if not base_def:
+        base_def = {'atk': 1, 'range': 2, 'rof': 1.0}
+    stat = {
+        'atk': float(base_def.get('atk', 1)),
+        'range': float(base_def.get('range', 2)),
+        'rof': float(base_def.get('rof', 1.0)),
+    }
+    tm = talent_state.get('tower_mod', {}) if talent_state else {}
+    stat['atk'] *= tm.get('global_atk_mul', 1.0)
+    stat['rof'] *= tm.get('global_rof_mul', 1.0)
+    stat['range'] += tm.get('global_range_add', 0.0)
+    emods = tm.get('element_mod', {})
+    for key in _tower_element_keys(tower):
+        mod = emods.get(key)
+        if not mod:
+            continue
+        if 'atk_mul' in mod:
+            stat['atk'] *= mod.get('atk_mul', 1.0)
+        if 'rof_mul' in mod:
+            stat['rof'] *= mod.get('rof_mul', 1.0)
+        if 'range_add' in mod:
+            stat['range'] += mod.get('range_add', 0.0)
+    stat['atk'] = max(1.0, stat['atk'])
+    stat['rof'] = max(0.1, stat['rof'])
+    stat['range'] = max(1.0, stat['range'])
+    return stat
+
+
+def _talent_on_creep_kill(creep):
+    if not talent_state:
+        return
+    econ = talent_state.get('economy', {})
+    every = econ.get('kill_reward_every')
+    bonus = econ.get('kill_reward_bonus_flat', 0)
+    if every and bonus:
+        talent_runtime['kill_counter'] = talent_runtime.get('kill_counter', 0) + 1
+        if talent_runtime['kill_counter'] >= every:
+            talent_runtime['kill_counter'] = 0
+            global gold
+            gold += bonus
+            add_notice(f"天賦獎勵 +${bonus}", (255, 236, 140))
+            sfx(SFX_COIN)
+
+
+def talent_on_wave_cleared():
+    if not talent_state:
+        return
+    talent_runtime['kill_counter'] = 0
+    if talent_state.get('double_loot_this_wave'):
+        talent_state['double_loot_this_wave'] = False
+
+
+def _talent_choice_text(talent, idx):
+    txt = format_talent_text(talent)
+    header = f"[{idx+1}] "
+    lines = txt.splitlines()
+    if lines:
+        lines[0] = header + lines[0]
+    else:
+        lines = [header + talent.get('name', 'Talent')]
+    return lines
+
+
+def open_talent_selection():
+    global talent_ui_active, talent_choices, talent_ui_rects, talent_panel_rect
+    if talent_ui_active or fusion_active:
+        return
+    if wave <= 0:
+        return
+    global running
+    running = False
+    _ensure_talent_refs()
+    picked = talent_state.get('picked_talents', set())
+    choices = roll_talent_choices(wave, picked_ids=picked, k=3)
+    if not choices:
+        return
+    talent_choices = choices
+    talent_ui_active = True
+    talent_ui_rects = []
+    talent_panel_rect = None
+    talent_runtime['last_offer_wave'] = wave
+
+
+def close_talent_selection():
+    global talent_ui_active, talent_choices, talent_ui_rects, talent_panel_rect
+    talent_ui_active = False
+    talent_choices = []
+    talent_ui_rects = []
+    talent_panel_rect = None
+
+
+def accept_talent_choice(index):
+    if not talent_ui_active:
+        return
+    if not (0 <= index < len(talent_choices)):
+        return
+    choice = talent_choices[index]
+    talent_state['current_wave'] = wave
+    apply_talent_effect(choice['id'], talent_state)
+    add_notice(f"獲得天賦：{choice['name']}", (200, 230, 255))
+    sfx(SFX_LEVELUP)
+    close_talent_selection()
+
+
+def maybe_offer_talent():
+    if talent_ui_active or fusion_active:
+        return
+    if game_state != GAME_PLAY or life <= 0:
+        return
+    if wave <= 0:
+        return
+    if talent_runtime.get('last_offer_wave', 0) >= wave:
+        return
+    if len(talent_state.get('picked_talents', [])) >= len(TALENT_POOL):
+        return
+    open_talent_selection()
+
+
+def draw_talent_overlay():
+    if not talent_ui_active:
+        return
+    overlay = pygame.Surface((W, H), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 180))
+    screen.blit(overlay, (0, 0))
+    panel_w, panel_h = 640, 480
+    panel = pygame.Rect(W//2 - panel_w//2, H//2 - panel_h//2, panel_w, panel_h)
+    pygame.draw.rect(screen, (36, 48, 84), panel, border_radius=14)
+    pygame.draw.rect(screen, (140, 180, 255), panel, 3, border_radius=14)
+    title = BIG.render("選擇一項天賦", True, (235, 242, 255))
+    screen.blit(title, (panel.centerx - title.get_width()//2, panel.y + 24))
+    hint = SMALL.render("按 1~3 選擇天賦，或按 ESC 跳過", True, (210, 220, 235))
+    screen.blit(hint, (panel.centerx - hint.get_width()//2, panel.y + 60))
+    choice_h = 110
+    gap = 16
+    start_y = panel.y + 100
+    global talent_ui_rects, talent_panel_rect
+    talent_ui_rects = []
+    talent_panel_rect = panel
+    for idx, talent in enumerate(talent_choices):
+        rect = pygame.Rect(panel.x + 28, start_y + idx * (choice_h + gap), panel.width - 56, choice_h)
+        pygame.draw.rect(screen, (52, 68, 110), rect, border_radius=10)
+        pygame.draw.rect(screen, (160, 200, 255), rect, 2, border_radius=10)
+        lines = _talent_choice_text(talent, idx)
+        for i, line in enumerate(lines):
+            font = SMALL if i else FONT
+            txt = font.render(line, True, (235, 242, 255))
+            screen.blit(txt, (rect.x + 16, rect.y + 12 + i * 22))
+        rarity = FONT.render(talent.get('rarity', 'R'), True, (255, 220, 160))
+        screen.blit(rarity, (rect.right - rarity.get_width() - 16, rect.y + 12))
+        talent_ui_rects.append((rect, idx))
+
+
+init_talent_state()
+
 #
 # 成本查詢輔助
 def get_build_cost(ttype='arrow'):
@@ -570,7 +809,10 @@ def get_upgrade_cost(tower):
     lv = tower.get('level', 0)
     table = PRICES['upgrade'].get(ttype, [])
     if lv < len(table):
-        return table[lv]
+        cost = table[lv]
+        if talent_state:
+            cost = max(1, cost - talent_state.get('upgrade_cost_minus', 0))
+        return cost
     return None
 
 # 進化成本查詢
@@ -872,6 +1114,15 @@ def _do_knockback(creep, grids):
 def _perform_chain_lightning(primary, elem_cfg, bullet):
     remaining = max(0, int(elem_cfg.get('base_targets', 2)))
     remaining += max(0, int(elem_cfg.get('targets_per_lv', 1))) * max(0, int(elem_cfg.get('level', 0)))
+    if bullet and talent_state:
+        lightning_mod = talent_state.get('tower_mod', {}).get('element_mod', {})
+        lm = lightning_mod.get('lightning') or lightning_mod.get('thunder')
+        if lm:
+            extra_targets = int(lm.get('extra_targets', 0))
+            chance = float(lm.get('chain_chance', 0.0))
+            if extra_targets > 0:
+                if chance <= 0.0 or random.random() < chance:
+                    remaining += extra_targets
     if remaining <= 0:
         return
     dmg = max(1, int(round(bullet.get('dmg', 1))))
@@ -914,14 +1165,23 @@ def _perform_chain_lightning(primary, elem_cfg, bullet):
             gold += reward_amt
             next_target['rewarded'] = True
             sfx(SFX_DEATH); sfx(SFX_COIN)
+            _talent_on_creep_kill(next_target)
         last = next_target
 
 def _spawn_poison_cloud(x, y, elem_cfg, atk_val):
     x = int(round(x))
     y = int(round(y))
     duration = float(elem_cfg.get('duration_total', elem_cfg.get('duration', 2.0)))
+    if talent_state:
+        pmod = talent_state.get('tower_mod', {}).get('element_mod', {}).get('poison')
+        if pmod:
+            duration *= pmod.get('duration_mul', 1.0)
     ttl = max(1, int(round(duration * 60)))
     radius_units = float(elem_cfg.get('radius_total', elem_cfg.get('radius', 2.0)))
+    if talent_state:
+        pmod = talent_state.get('tower_mod', {}).get('element_mod', {}).get('poison')
+        if pmod:
+            radius_units += pmod.get('range_add', 0.0)
     radius = radius_units * CELL
     radius = max(CELL * 0.5, radius)
     tick = max(1, int(elem_cfg.get('tick_interval', 15)))
@@ -1724,6 +1984,7 @@ def poison_clouds_step():
                         gold += reward_amt
                         m['rewarded'] = True
                         sfx(SFX_DEATH); sfx(SFX_COIN)
+                        _talent_on_creep_kill(m)
         active.append(cloud)
     poison_clouds[:] = active
 
@@ -2464,6 +2725,11 @@ def repair_castle_with_wood(mult=1):
     spent_chunks = math.ceil(heal / float(WOOD_REPAIR_HP))
     cost = spent_chunks * WOOD_REPAIR_COST
     wood_stock -= cost
+    if talent_state:
+        bonus_ratio = talent_state.get('economy', {}).get('lumber_heal_bonus_ratio', 0.0)
+        if bonus_ratio:
+            heal = int(round(heal * (1.0 + bonus_ratio)))
+            heal = min(heal, missing)
     CASTLE['hp'] = min(CASTLE['hp'] + heal, CASTLE['max_hp'])
     add_notice(f"使用木材修復 +{heal} HP（消耗 {cost} 木材）", (170, 220, 255))
     sfx(SFX_LEVELUP)
@@ -2477,7 +2743,10 @@ def reward_for(kind):
     except Exception:
         growth = 0.02
     mult = (1.0 + growth) ** max(0, int(wave))
-    return max(1, int(round(base * mult)))
+    reward = max(1, int(round(base * mult)))
+    if talent_state.get('double_loot_this_wave'):
+        reward *= 2
+    return reward
 
 def creep_attack_value(creep):
     """回傳怪物攻擊力（優先使用實體值，其次讀取設定表）。"""
@@ -2527,10 +2796,11 @@ def get_creep_by_id(cid):
         if m['id']==cid: return m
     return None
 
-def tower_fire(t):
+def tower_fire(t, stat=None):
     global gold
     ttype = t.get('type', 'arrow')
-    stat = TOWER_TYPES[ttype][t['level']]
+    if stat is None:
+        stat = compute_tower_stats(t)
     in_range = [m for m in creeps if m['alive'] and manhattan((t['r'], t['c']), (int(m['r']), int(m['c']))) <= stat['range']]
     if not in_range: return
 
@@ -2545,18 +2815,24 @@ def tower_fire(t):
     spd = 8.0
     vx, vy = dx / length * spd, dy / length * spd
     sfx(SFX_SHOOT)
+    element = t.get('element')
+    if not element:
+        if ttype in ('thunder', 'lightning'):
+            element = 'thunder'
+        elif ttype in ('fire', 'water', 'land', 'wind', 'ice', 'poison'):
+            element = ttype
     bullet = {
         'x': sx, 'y': sy, 'vx': vx, 'vy': vy,
         'dmg': stat['atk'] * (1.5 if ttype == 'rocket' else 1),
         'target_id': target['id'],
         'ttl': 120, 'trail': [(sx, sy)],
         'aoe': (ttype == 'rocket'),
-        'element': t.get('element'),
+        'element': element,
         'tlevel': t.get('level', 0),
         'style': ttype
     }
     bullets.append(bullet)
-    if t.get('element') == 'thunder':
+    if element == 'thunder':
         _spawn_lightning_arc(sx, sy, tx, ty, ttl=10)
 
 def spawn_logic():
@@ -2690,6 +2966,7 @@ def move_creeps():
                         gold += reward_amt
                         m['rewarded'] = True
                         sfx(SFX_DEATH); sfx(SFX_COIN)
+                        _talent_on_creep_kill(m)
                         eff[key] = None
                         break
                 if e['ttl'] <= 0:
@@ -2765,11 +3042,11 @@ def move_creeps():
             sfx(SFX_COIN)
 def towers_step():
     for t in towers:
-        stat = TOWER_TYPES[t.get('type','arrow')][t['level']]
+        stat = compute_tower_stats(t)
         cd_need = max(1, int(30 / stat['rof']))
         t['cool'] = t.get('cool',0) + 1
         if t['cool'] >= cd_need:
-            tower_fire(t)
+            tower_fire(t, stat)
             t['cool']=0
 
 def bullets_step():
@@ -2837,6 +3114,7 @@ def bullets_step():
                                 gold += reward_amt
                                 m['rewarded'] = True
                                 sfx(SFX_DEATH); sfx(SFX_COIN)
+                                _talent_on_creep_kill(m)
                 if target['hp'] <= 0:
                     target['alive'] = False
                     corpses.append({'x': tx, 'y': ty, 'ttl': 24})
@@ -2845,6 +3123,7 @@ def bullets_step():
                     gold += reward_amt
                     target['rewarded'] = True
                     sfx(SFX_DEATH); sfx(SFX_COIN)
+                    _talent_on_creep_kill(target)
                 continue
         if 0 <= b['x'] <= W and 0 <= b['y'] <= H and b['ttl']>0: alive.append(b)
     bullets[:] = alive
@@ -2951,6 +3230,7 @@ def reset_game():
     running=False; tick=0; gold=100; life=20; wave=0; wave_incoming=False; spawn_counter=0
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]; lightning_effects=[]
     towers=[]; creeps=[]; bullets=[]; hits=[]; corpses=[]; gains=[]; upgrades=[]; lightning_effects=[]
+    init_talent_state()
     for r, c in list(lumberyard_blocked):
         if 0 <= r < ROWS and 0 <= c < COLS and MAP[r][c] == 3:
             MAP[r][c] = 0
@@ -3255,6 +3535,16 @@ def go_menu():
 
 def handle_keys(ev):
     global game_state, running, speed, sel, selected_map_idx
+    if talent_ui_active:
+        if ev.key in (pygame.K_1, pygame.K_KP1):
+            accept_talent_choice(0)
+        elif ev.key in (pygame.K_2, pygame.K_KP2):
+            accept_talent_choice(1)
+        elif ev.key in (pygame.K_3, pygame.K_KP3):
+            accept_talent_choice(2)
+        elif ev.key == pygame.K_ESCAPE:
+            close_talent_selection()
+        return
     if fusion_active:
         if ev.key == pygame.K_ESCAPE:
             cancel_fusion_selection()
@@ -3351,6 +3641,17 @@ def handle_click(pos):
     global sel, game_state, selected_card, hand, gold, effects
     mx, my = pos
 
+    if talent_ui_active:
+        for rect, idx in talent_ui_rects:
+            if rect.collidepoint(mx, my):
+                sfx(SFX_CLICK)
+                accept_talent_choice(idx)
+                return
+        if talent_panel_rect and not talent_panel_rect.collidepoint(mx, my):
+            sfx(SFX_CLICK)
+            close_talent_selection()
+        return
+
     if fusion_active:
         handle_fusion_click(pos)
         return
@@ -3436,6 +3737,10 @@ def handle_click(pos):
                         amt = int(cn[0])
                     except Exception:
                         amt = 1
+                    if talent_state:
+                        bonus = talent_state.get('economy', {}).get('coin_card_bonus', 0)
+                        amt += bonus
+                        amt = max(0, amt)
                     hand.pop(idx)
                     gold += amt
                     add_notice(f"+ ${amt} 金幣卡", (255, 236, 140))
@@ -3471,6 +3776,9 @@ def handle_click(pos):
 # 新增：右鍵手牌丟棄
 def handle_right_click(pos):
     global selected_card, hand, gold
+    if talent_ui_active:
+        close_talent_selection()
+        return
     if fusion_active:
         cancel_fusion_selection()
         return
@@ -3602,6 +3910,11 @@ def main():
                 tick += 1
                 spawn_logic(); move_creeps(); towers_step(); bullets_step(); poison_clouds_step()
         # 無論是否暫停：當不再出怪且場上沒有怪時，才抽下一波預告出口（支援多出口）
+        if not wave_incoming and not creeps:
+            if talent_runtime.get('last_cleared_wave', 0) < wave:
+                talent_on_wave_cleared()
+                talent_runtime['last_cleared_wave'] = wave
+            maybe_offer_talent()
         if not wave_incoming and next_spawns is None and not creeps and SPAWNS:
             next_spawns = choose_wave_spawns()
 
@@ -3613,6 +3926,8 @@ def main():
         draw_effects()
         if fusion_active:
             draw_fusion_overlay()
+        if talent_ui_active:
+            draw_talent_overlay()
         if life<=0:
             s = pygame.Surface((W,H), pygame.SRCALPHA); s.fill((0,0,0,160)); screen.blit(s,(0,0))
             txt = BIG.render("Game Over - 按 R 重來", True, TEXT); rect = txt.get_rect(center=(W//2, H//2)); screen.blit(txt, rect)
