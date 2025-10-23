@@ -468,6 +468,10 @@ WIND_PROJECTILE_IMG_PATH = "assets/pic/wind.png"
 WIND_PROJECTILE_IMG = None
 WIND_PROJECTILE_IMG_SIZE = getattr(CFG, 'WIND_PROJECTILE_IMG_SIZE', 26)
 
+ICE_PROJECTILE_IMG_PATH = "assets/pic/snowball.png"
+ICE_PROJECTILE_IMG = None
+ICE_PROJECTILE_IMG_SIZE = getattr(CFG, 'ICE_PROJECTILE_IMG_SIZE', 26)
+
 DEFAULT_ELEMENT_TOWER_PATHS = {
     'fire':    "assets/pic/firetower.png",
     'water':   "assets/pic/watertower.png",
@@ -506,6 +510,11 @@ LIGHTNING_BOLT_IMG = None
 BURN_IMG_PATH = "assets/pic/burn.png"
 BURN_IMG = None
 BURN_IMG_SIZE = getattr(CFG, 'BURN_IMG_SIZE', 54)
+
+# --- 冰凍特效 ---
+ICE_HIT_IMG_PATH = "assets/pic/IcePickhit.png"
+ICE_HIT_IMG = None
+ICE_HIT_IMG_SIZE = getattr(CFG, 'ICE_HIT_IMG_SIZE', 56)
 
 
 # --- 價格表（建塔 / 升級 / 進化）---
@@ -1181,6 +1190,13 @@ try:
         except Exception:
             WIND_PROJECTILE_IMG = None
 
+    if os.path.exists(ICE_PROJECTILE_IMG_PATH):
+        try:
+            _raw = pygame.image.load(ICE_PROJECTILE_IMG_PATH).convert_alpha()
+            ICE_PROJECTILE_IMG = pygame.transform.smoothscale(_raw, (int(ICE_PROJECTILE_IMG_SIZE), int(ICE_PROJECTILE_IMG_SIZE)))
+        except Exception:
+            ICE_PROJECTILE_IMG = None
+
     if os.path.exists(LIGHTNING_IMG_PATH):
         try:
             _raw = pygame.image.load(LIGHTNING_IMG_PATH).convert_alpha()
@@ -1213,6 +1229,13 @@ try:
             BURN_IMG = pygame.transform.smoothscale(_raw, (int(BURN_IMG_SIZE), int(BURN_IMG_SIZE)))
         except Exception:
             BURN_IMG = None
+
+    if os.path.exists(ICE_HIT_IMG_PATH):
+        try:
+            _raw = pygame.image.load(ICE_HIT_IMG_PATH).convert_alpha()
+            ICE_HIT_IMG = pygame.transform.smoothscale(_raw, (int(ICE_HIT_IMG_SIZE), int(ICE_HIT_IMG_SIZE)))
+        except Exception:
+            ICE_HIT_IMG = None
 
     # 四元素圖示（用於依元素覆蓋顯示）
     for _elem, _path in ELEMENT_TOWER_IMAGE_PATHS.items():
@@ -2200,6 +2223,8 @@ def draw_bullets():
         element = b.get('element')
         if element == 'wind':
             trail_color = (170, 240, 255)
+        elif element == 'ice':
+            trail_color = (210, 240, 255)
         if element == 'thunder':
             trail_color = (120, 200, 255)
         if len(b['trail']) >= 2:
@@ -2212,6 +2237,11 @@ def draw_bullets():
         elif element == 'wind' and WIND_PROJECTILE_IMG:
             angle = -math.degrees(math.atan2(b['vy'], b['vx'])) - 90
             img = pygame.transform.rotozoom(WIND_PROJECTILE_IMG, angle, 1.0)
+            rect = img.get_rect(center=(int(b['x']), int(b['y'])))
+            screen.blit(img, rect)
+        elif element == 'ice' and ICE_PROJECTILE_IMG:
+            angle = -math.degrees(math.atan2(b['vy'], b['vx'])) - 90
+            img = pygame.transform.rotozoom(ICE_PROJECTILE_IMG, angle, 1.0)
             rect = img.get_rect(center=(int(b['x']), int(b['y'])))
             screen.blit(img, rect)
         elif element == 'thunder' and LIGHTNING_BOLT_IMG:
@@ -2287,6 +2317,19 @@ def draw_hits():
                 blast.set_alpha(int(alpha * 0.7))
                 rect_blast = blast.get_rect(center=(h['x'], h['y']))
                 screen.blit(blast, rect_blast)
+        elif effect == 'freeze' and ICE_HIT_IMG:
+            scale = 0.85 + (1.0 - life_ratio) * 0.3
+            img = pygame.transform.rotozoom(ICE_HIT_IMG, 0, scale)
+            img.set_alpha(alpha)
+            offset_y = int((1.0 - life_ratio) * 6)
+            rect = img.get_rect(center=(h['x'], h['y'] - offset_y))
+            screen.blit(img, rect)
+            aura_size = int(HIT_IMG_SIZE * (0.8 + (1.0 - life_ratio) * 0.3))
+            aura_size = max(8, aura_size)
+            aura = pygame.Surface((aura_size, aura_size), pygame.SRCALPHA)
+            pygame.draw.circle(aura, (190, 230, 255, int(alpha * 0.5)), (aura_size//2, aura_size//2), aura_size//2)
+            aura_rect = aura.get_rect(center=(h['x'], h['y']))
+            screen.blit(aura, aura_rect)
         elif BLAST_IMG:
             scale = 1.0 + (1.0 - life_ratio) * 0.3  # 命中瞬間稍微變大
             size = int(HIT_IMG_SIZE * scale)
@@ -2744,12 +2787,14 @@ def bullets_step():
             if math.hypot(b['x'] - tx, b['y'] - ty) < 10:
                 dmg = b['dmg']
                 target['hp'] -= dmg
+                element = b.get('element')
                 hit_entry = {'x': tx, 'y': ty, 'ttl': 12, 'ttl_max': 12, 'dmg': dmg}
                 if b.get('style') == 'rocket':
                     hit_entry['effect'] = 'burn'
+                elif element == 'ice':
+                    hit_entry['effect'] = 'freeze'
                 hits.append(hit_entry)
                 sfx(SFX_HIT)
-                element = b.get('element')
                 ecfg = None
                 if element in ('water', 'land', 'wind', 'fire', 'thunder', 'ice', 'poison'):
                     ecfg = _get_elem_cfg(element, b.get('tlevel', 0))
