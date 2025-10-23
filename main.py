@@ -18,7 +18,7 @@ V0.0.6 新增：出怪口隨機出現
 V0.0.7 新增：伐木場機制
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.77-Beta"
+TITLENAME = "塔路之戰-V0.0.78-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -460,6 +460,14 @@ TOWER_IMG_SIZE  = 36  # 圖片縮放邊長（像素）
 ROCKET_TOWER_IMG       = None
 ROCKET_TOWER_IMG_PATH  = "assets/pic/rocket_tower.png"
 
+FIREBALL_IMG_PATH = "assets/pic/fireball.png"
+FIREBALL_IMG = None
+FIREBALL_IMG_SIZE = getattr(CFG, 'FIREBALL_IMG_SIZE', 28)
+
+WIND_PROJECTILE_IMG_PATH = "assets/pic/wind.png"
+WIND_PROJECTILE_IMG = None
+WIND_PROJECTILE_IMG_SIZE = getattr(CFG, 'WIND_PROJECTILE_IMG_SIZE', 26)
+
 DEFAULT_ELEMENT_TOWER_PATHS = {
     'fire':    "assets/pic/firetower.png",
     'water':   "assets/pic/watertower.png",
@@ -493,6 +501,11 @@ LIGHTNING_IMG_MAX_HEIGHT = getattr(CFG, 'LIGHTNING_IMG_MAX_HEIGHT', 180)
 LIGHTNING_IMG = None
 LIGHTNING_ARC_IMG = None
 LIGHTNING_BOLT_IMG = None
+
+# --- 火焰特效 ---
+BURN_IMG_PATH = "assets/pic/burn.png"
+BURN_IMG = None
+BURN_IMG_SIZE = getattr(CFG, 'BURN_IMG_SIZE', 54)
 
 
 # --- 價格表（建塔 / 升級 / 進化）---
@@ -845,7 +858,7 @@ def _do_knockback(creep, grids):
     creep['r'], creep['c'] = float(tr), float(tc)
     creep['wp'] = target_wp + 1
     cx, cy = center_px(tr, tc)
-    hits.append({'x': int(round(cx)), 'y': int(round(cy)), 'ttl': 8, 'color': (170, 235, 255)})
+    hits.append({'x': int(round(cx)), 'y': int(round(cy)), 'ttl': 8, 'ttl_max': 8, 'color': (170, 235, 255)})
 
 def _perform_chain_lightning(primary, elem_cfg, bullet):
     remaining = max(0, int(elem_cfg.get('base_targets', 2)))
@@ -881,7 +894,7 @@ def _perform_chain_lightning(primary, elem_cfg, bullet):
         nx, ny = center_px(next_target['r'], int(next_target['c']))
         _spawn_lightning_arc(last_x, last_y, nx, ny, ttl=12)
         cx, cy = center_px(next_target['r'], int(next_target['c']))
-        hits.append({'x': cx, 'y': cy, 'ttl': 12, 'dmg': dmg, 'color': (200, 220, 255)})
+        hits.append({'x': cx, 'y': cy, 'ttl': 12, 'ttl_max': 12, 'dmg': dmg, 'color': (200, 220, 255)})
         next_target['hp'] -= dmg
         sfx(SFX_HIT)
         if next_target['hp'] <= 0:
@@ -1154,6 +1167,20 @@ try:
         _raw = pygame.image.load(ROCKET_TOWER_IMG_PATH).convert_alpha()
         ROCKET_TOWER_IMG = pygame.transform.smoothscale(_raw, (TOWER_IMG_SIZE, TOWER_IMG_SIZE))
 
+    if os.path.exists(FIREBALL_IMG_PATH):
+        try:
+            _raw = pygame.image.load(FIREBALL_IMG_PATH).convert_alpha()
+            FIREBALL_IMG = pygame.transform.smoothscale(_raw, (int(FIREBALL_IMG_SIZE), int(FIREBALL_IMG_SIZE)))
+        except Exception:
+            FIREBALL_IMG = None
+
+    if os.path.exists(WIND_PROJECTILE_IMG_PATH):
+        try:
+            _raw = pygame.image.load(WIND_PROJECTILE_IMG_PATH).convert_alpha()
+            WIND_PROJECTILE_IMG = pygame.transform.smoothscale(_raw, (int(WIND_PROJECTILE_IMG_SIZE), int(WIND_PROJECTILE_IMG_SIZE)))
+        except Exception:
+            WIND_PROJECTILE_IMG = None
+
     if os.path.exists(LIGHTNING_IMG_PATH):
         try:
             _raw = pygame.image.load(LIGHTNING_IMG_PATH).convert_alpha()
@@ -1179,6 +1206,13 @@ try:
             LIGHTNING_IMG = None
             LIGHTNING_ARC_IMG = None
             LIGHTNING_BOLT_IMG = None
+
+    if os.path.exists(BURN_IMG_PATH):
+        try:
+            _raw = pygame.image.load(BURN_IMG_PATH).convert_alpha()
+            BURN_IMG = pygame.transform.smoothscale(_raw, (int(BURN_IMG_SIZE), int(BURN_IMG_SIZE)))
+        except Exception:
+            BURN_IMG = None
 
     # 四元素圖示（用於依元素覆蓋顯示）
     for _elem, _path in ELEMENT_TOWER_IMAGE_PATHS.items():
@@ -1658,7 +1692,7 @@ def poison_clouds_step():
                 dy = cy - cloud['y']
                 if dx * dx + dy * dy <= radius_sq:
                     m['hp'] -= cloud['dmg']
-                    hits.append({'x': cx, 'y': cy, 'ttl': 10, 'dmg': cloud['dmg'], 'color': (120, 255, 150)})
+                    hits.append({'x': cx, 'y': cy, 'ttl': 10, 'ttl_max': 10, 'dmg': cloud['dmg'], 'color': (120, 255, 150)})
                     if m['hp'] <= 0:
                         m['alive'] = False
                         corpses.append({'x': cx, 'y': cy, 'ttl': 24})
@@ -2159,12 +2193,28 @@ def draw_monster_icon(m):
 
 def draw_bullets():
     for b in bullets:
+        style = b.get('style')
         trail_color = (180, 190, 200)
-        if b.get('element') == 'thunder':
+        if style == 'rocket':
+            trail_color = (255, 150, 90)
+        element = b.get('element')
+        if element == 'wind':
+            trail_color = (170, 240, 255)
+        if element == 'thunder':
             trail_color = (120, 200, 255)
         if len(b['trail']) >= 2:
             pygame.draw.lines(screen, trail_color, False, b['trail'], 2)
-        if b.get('element') == 'thunder' and LIGHTNING_BOLT_IMG:
+        if style == 'rocket' and FIREBALL_IMG:
+            angle = -math.degrees(math.atan2(b['vy'], b['vx'])) - 90
+            img = pygame.transform.rotozoom(FIREBALL_IMG, angle, 1.0)
+            rect = img.get_rect(center=(int(b['x']), int(b['y'])))
+            screen.blit(img, rect)
+        elif element == 'wind' and WIND_PROJECTILE_IMG:
+            angle = -math.degrees(math.atan2(b['vy'], b['vx'])) - 90
+            img = pygame.transform.rotozoom(WIND_PROJECTILE_IMG, angle, 1.0)
+            rect = img.get_rect(center=(int(b['x']), int(b['y'])))
+            screen.blit(img, rect)
+        elif element == 'thunder' and LIGHTNING_BOLT_IMG:
             angle = -math.degrees(math.atan2(b['vy'], b['vx'])) - 90
             img = pygame.transform.rotate(LIGHTNING_BOLT_IMG, angle)
             rect = img.get_rect(center=(int(b['x']), int(b['y'])))
@@ -2214,9 +2264,30 @@ def draw_lightning_effects():
 def draw_hits():
     alive = []
     for h in hits:
-        life_ratio = h['ttl'] / 12.0
+        ttl_max = h.get('ttl_max', 12)
+        try:
+            ttl_max = float(ttl_max)
+        except Exception:
+            ttl_max = 12.0
+        ttl_max = max(1.0, ttl_max)
+        life_ratio = max(0.0, min(1.0, h['ttl'] / ttl_max))
         alpha = max(0, min(255, int(255 * life_ratio)))
-        if BLAST_IMG:
+        effect = h.get('effect')
+        if effect == 'burn' and BURN_IMG:
+            scale = 0.8 + (1.0 - life_ratio) * 0.5
+            img = pygame.transform.rotozoom(BURN_IMG, 0, scale)
+            img.set_alpha(alpha)
+            offset_y = int((1.0 - life_ratio) * 10)
+            rect = img.get_rect(center=(h['x'], h['y'] - offset_y))
+            screen.blit(img, rect)
+            if BLAST_IMG:
+                blast_scale = 0.9 + (1.0 - life_ratio) * 0.2
+                blast_size = int(HIT_IMG_SIZE * blast_scale)
+                blast = pygame.transform.smoothscale(BLAST_IMG, (blast_size, blast_size)).copy()
+                blast.set_alpha(int(alpha * 0.7))
+                rect_blast = blast.get_rect(center=(h['x'], h['y']))
+                screen.blit(blast, rect_blast)
+        elif BLAST_IMG:
             scale = 1.0 + (1.0 - life_ratio) * 0.3  # 命中瞬間稍微變大
             size = int(HIT_IMG_SIZE * scale)
             img = pygame.transform.smoothscale(BLAST_IMG, (size, size)).copy()
@@ -2438,7 +2509,8 @@ def tower_fire(t):
         'ttl': 120, 'trail': [(sx, sy)],
         'aoe': (ttype == 'rocket'),
         'element': t.get('element'),
-        'tlevel': t.get('level', 0)
+        'tlevel': t.get('level', 0),
+        'style': ttype
     }
     bullets.append(bullet)
     if t.get('element') == 'thunder':
@@ -2672,7 +2744,10 @@ def bullets_step():
             if math.hypot(b['x'] - tx, b['y'] - ty) < 10:
                 dmg = b['dmg']
                 target['hp'] -= dmg
-                hits.append({'x': tx, 'y': ty, 'ttl': 12, 'dmg': dmg})
+                hit_entry = {'x': tx, 'y': ty, 'ttl': 12, 'ttl_max': 12, 'dmg': dmg}
+                if b.get('style') == 'rocket':
+                    hit_entry['effect'] = 'burn'
+                hits.append(hit_entry)
                 sfx(SFX_HIT)
                 element = b.get('element')
                 ecfg = None
@@ -2702,7 +2777,10 @@ def bullets_step():
                         if math.hypot(mx - ax, my - ay) <= radius:
                             splash_dmg = max(1, int(round(dmg * 0.6)))
                             m['hp'] -= splash_dmg
-                            hits.append({'x': mx, 'y': my, 'ttl': 8, 'dmg': splash_dmg})
+                            splash_entry = {'x': mx, 'y': my, 'ttl': 8, 'ttl_max': 8, 'dmg': splash_dmg}
+                            if b.get('style') == 'rocket':
+                                splash_entry['effect'] = 'burn'
+                            hits.append(splash_entry)
                             ecfg_fire = _get_elem_cfg('fire', b.get('tlevel', 0))
                             if ecfg_fire and _creep_can_receive_effect(m, ecfg_fire.get('type')):
                                 _apply_status_on_hit(m, ecfg_fire, dmg)
