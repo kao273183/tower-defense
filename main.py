@@ -24,7 +24,7 @@ V0.0.7 新增：伐木場機制
 v0.0.8 新增：天賦系統
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.8-Beta"
+TITLENAME = "塔路之戰-V0.0.81-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -1347,9 +1347,9 @@ LEVELUP_IMG = None   # 升級特效圖
 CASTLE_IMG = None    # 城堡圖片
 WALL_IMG = None      # 牆壁圖片
 #CASTLE_IMG_PATH = "assets/pic/castle.png"
-CASTLE_IMG_PATH = "assets/pic/halloween_castle.png"
+CASTLE_IMG_PATH = "assets/pic/christmastown.png"
 #GREY_IMG_PATH = "assets/pic/activist.png" # 灰色背景圖片 預設
-GREY_IMG_PATH = "assets/pic/tombstone.png"      # 灰色背景圖片 萬聖節
+GREY_IMG_PATH = "assets/pic/tree.png"      # 灰色背景圖片 萬聖節
 WALL_IMG_PATH = "assets/pic/wall.png"
 CASTLE_IMG_SIZE = 48
 WALL_IMG_SIZE = 40
