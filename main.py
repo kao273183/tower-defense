@@ -478,6 +478,12 @@ ICE_PROJECTILE_IMG_PATH = "assets/pic/snowball.png"
 ICE_PROJECTILE_IMG = None
 ICE_PROJECTILE_IMG_SIZE = getattr(CFG, 'ICE_PROJECTILE_IMG_SIZE', 26)
 
+GEMSTONE_IMG_PATH = "assets/pic/gemstone.png"
+GEMSTONE_IMG = None
+GEMSTONE_IMG_SIZE = getattr(CFG, 'GEMSTONE_IMG_SIZE', 26)
+MAX_MAGIC_STONES = 5
+MAGIC_STONE_BASE_DROP = getattr(CFG, 'MAGIC_STONE_DROP_CHANCE', 0.03)
+
 DEFAULT_ELEMENT_TOWER_PATHS = {
     'fire':    "assets/pic/firetower.png",
     'water':   "assets/pic/watertower.png",
@@ -521,6 +527,9 @@ BURN_IMG_SIZE = getattr(CFG, 'BURN_IMG_SIZE', 54)
 ICE_HIT_IMG_PATH = "assets/pic/IcePickhit.png"
 ICE_HIT_IMG = None
 ICE_HIT_IMG_SIZE = getattr(CFG, 'ICE_HIT_IMG_SIZE', 56)
+
+# --- 魔法石 ---
+MAGIC_STONES = 0
 
 
 # --- 價格表（建塔 / 升級 / 進化）---
@@ -624,6 +633,7 @@ def init_talent_state():
     talent_ui_active = False
     talent_ui_rects = []
     talent_panel_rect = None
+    globals()['MAGIC_STONES'] = 0
     _ensure_talent_refs()
 
 
@@ -686,6 +696,24 @@ def _talent_on_creep_kill(creep):
             gold += bonus
             add_notice(f"天賦獎勵 +${bonus}", (255, 236, 140))
             sfx(SFX_COIN)
+    _maybe_drop_magic_stone()
+
+
+def _maybe_drop_magic_stone():
+    global MAGIC_STONES
+    if MAGIC_STONES >= MAX_MAGIC_STONES:
+        return
+    base = MAGIC_STONE_BASE_DROP
+    add_ratio = 0.0
+    if talent_state:
+        add_ratio += talent_state.get('economy', {}).get('magic_stone_drop_add', 0.0)
+        if talent_state.get('double_loot_this_wave'):
+            base *= 2.0
+    chance = max(0.0, min(1.0, base + add_ratio))
+    if random.random() < chance:
+        MAGIC_STONES = min(MAX_MAGIC_STONES, MAGIC_STONES + 1)
+        add_notice("獲得魔法石", (180, 230, 255))
+        sfx(SFX_COIN)
 
 
 def talent_on_wave_cleared():
@@ -1457,6 +1485,13 @@ try:
         except Exception:
             ICE_PROJECTILE_IMG = None
 
+    if os.path.exists(GEMSTONE_IMG_PATH):
+        try:
+            _raw = pygame.image.load(GEMSTONE_IMG_PATH).convert_alpha()
+            GEMSTONE_IMG = pygame.transform.smoothscale(_raw, (int(GEMSTONE_IMG_SIZE), int(GEMSTONE_IMG_SIZE)))
+        except Exception:
+            GEMSTONE_IMG = None
+
     if os.path.exists(LIGHTNING_IMG_PATH):
         try:
             _raw = pygame.image.load(LIGHTNING_IMG_PATH).convert_alpha()
@@ -2009,12 +2044,44 @@ def draw_panel():
     pygame.draw.rect(screen, PANEL, (0,0,W,TOP))
     txt = FONT.render(f"$ {gold}  Wave {wave}{' (spawning)' if wave_incoming else ''}    Speed x{speed}", True, TEXT)
     screen.blit(txt, (16, 10))
+
+    # 右下角：開始/暫停指示（含圖示）
+    status_label = "Playing" if running else "Paused"
+    status_color = (170, 240, 200) if running else (240, 200, 170)
+    status_txt = SMALL.render(status_label, True, status_color)
+    icon = PLAY_IMG if running else PAUSE_IMG
+    pad = 12
+    icon_w = icon.get_width() if icon else 0
+    icon_h = icon.get_height() if icon else 0
+    total_w = icon_w + (6 if icon else 0) + status_txt.get_width()
+    x = W - pad - total_w
+    y = H - pad - max(icon_h, status_txt.get_height())
+    if icon:
+        screen.blit(icon, (x, y))
+        x += icon_w + 6
+    screen.blit(status_txt, (x, y + max(0, (icon_h - status_txt.get_height()) // 2)))
     tips = FONT.render("C 升級主堡 S 回收｜F 修復主堡｜Space暫停/開始｜N下一波｜R重置｜1/2/3速度", True, TEXT)
     screen.blit(tips, (16, TOP-28))
     wood_str = f"木材: {wood_stock}"
     wood_label = FONT.render(wood_str, True, TEXT)
     #wood_x = W - wood_label.get_width() - 16
     screen.blit(wood_label, (16, 120))
+
+    # 魔法石顯示（右上角）
+    if GEMSTONE_IMG:
+        icons = MAX_MAGIC_STONES
+        size = GEMSTONE_IMG.get_width()
+        margin = STATUS_ICON_MARGIN
+        start_x = W - margin - icons * (size + 4) + 4
+        y = 12
+        for i in range(icons):
+            img = GEMSTONE_IMG.copy()
+            filled = i < MAGIC_STONES
+            alpha = 255 if filled else 80
+            img.set_alpha(alpha)
+            screen.blit(img, (start_x + i * (size + 4), y))
+        count_txt = SMALL.render(f"x{MAGIC_STONES}/{MAX_MAGIC_STONES}", True, (230, 240, 255))
+        screen.blit(count_txt, (start_x, y + size + 2))
     # 修復按鈕
     btn_w, btn_h = 150, 28
     btn_x = 16
@@ -2050,18 +2117,6 @@ def draw_panel():
         nr, nc = (next_spawns[0] if next_spawns else (0,0))
         info = FONT.render(f"＊＊下一波出口：怪物 在 ({nr},{nc})——按 N 開始＊＊", True, (255, 0, 0))
         screen.blit(info, (16, 610))
-
-    # 右上角：開始/暫停圖示
-    icon = (PLAY_IMG if running else PAUSE_IMG)
-    if icon:
-        rect = icon.get_rect()
-        rect.top = (TOP - rect.height)//2
-        rect.right = W - STATUS_ICON_MARGIN
-        screen.blit(icon, rect)
-    else:
-        # 備援：文字
-        s = FONT.render("PLAY" if running else "PAUSE", True, TEXT)
-        screen.blit(s, (W - STATUS_ICON_MARGIN - s.get_width(), (TOP - s.get_height())//2))
 
     # 價格提示（放在面板右下角）
     #price_hint = FONT.render(f"建塔${PRICES['build']['arrow']}｜升級(箭) ${'/'.join(map(str,PRICES['upgrade']['arrow']))}", True, (200,210,230))
