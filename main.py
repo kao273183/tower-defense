@@ -24,7 +24,7 @@ V0.0.7 新增：伐木場機制
 v0.0.8 新增：天賦系統
 未來規劃
 """
-TITLENAME = "塔路之戰-V0.0.81-Beta"
+TITLENAME = "塔路之戰-V0.0.83-Beta"
 pygame.init()
 try:
     pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -69,7 +69,7 @@ GAME_PLAY    = 'play'
 GAME_HELP    = 'help'
 GAME_LOADING = 'loading'
 game_state   = GAME_LOADING
-
+EMOJI_FONT_PATH = "assets/font/NotoColorEmoji.ttf"
 # 主選單按鈕樣式
 BTN_W, BTN_H = 260, 56
 BTN_GAP = 18
@@ -166,7 +166,7 @@ def load_map_from_file():
 # === 卡片系統 ===
 CARD_COST_DRAW = 5       # 抽卡花費
 CARD_COST_BUILD = 10     # Basic_Tower 建置花費（與 BUILD_COST 保持一致或直接以此為主）
-CARD_POOL = [
+BASE_CARD_POOL = [
     "basic", "fire", "wind", "water", "land", "upgrade",
     "ice", "poison", "thunder",
     "1money", "2money", "3money", "lumberyard"
@@ -192,6 +192,8 @@ CARD_IMAGES = {
     "thunder": "assets/pic/lightningCard.png",
     "ice": "assets/pic/iceCard.png",
     "poison": "assets/pic/poisonCard.png",
+    "skill_frost_field": "assets/pic/skill_frost_field.png",
+    "skill_thunder_burst": "assets/pic/skill_thunder_burst.png",
 }
 
 # 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
@@ -212,6 +214,8 @@ CARD_COSTS = {
     "thunder": CARD_COST_DRAW,
     "ice": CARD_COST_DRAW,
     "poison": CARD_COST_DRAW,
+    "skill_frost_field": 0,
+    "skill_thunder_burst": 0,
 }
 
 def _load_element_fusions():
@@ -249,6 +253,19 @@ ELEMENT_FUSIONS = _load_element_fusions()
 FUSION_BASE_SET = set(k for combo in ELEMENT_FUSIONS.keys() for k in combo)
 FUSION_REQUIRED_LENGTHS = set(len(combo) for combo in ELEMENT_FUSIONS.keys()) or {2}
 
+SKILL_CARDS = {
+    'skill_frost_field': {
+        'stones': 1,
+        'freeze_sec': 2.5,
+        'desc': '消耗1魔法石：全體凍結短時間'
+    },
+    'skill_thunder_burst': {
+        'stones': 2,
+        'damage': 8,
+        'desc': '消耗2魔法石：對全圖敵人造成雷擊傷害'
+    }
+}
+
 CARD_RATES_DEFAULT = [
     {'type': 'basic',   'weight': 45},
     {'type': 'fire',    'weight': 2},
@@ -261,8 +278,20 @@ CARD_RATES_DEFAULT = [
     {'type': '3money', 'weight': 10},#金幣卡
 ]
 
+SKILL_CARD_WEIGHT = getattr(CFG, 'SKILL_CARD_WEIGHT', 6)
+
+def get_current_card_pool():
+    pool = list(BASE_CARD_POOL)
+    if talent_state:
+        extra = talent_state.get('unlocked_cards', set())
+        for c in extra:
+            if c not in pool:
+                pool.append(c)
+    return pool
+
 def _get_card_rates():
     # 若外部設定有提供 CARD_RATES，且格式正確，則使用外部；否則用預設
+    pool = set(get_current_card_pool())
     rates = getattr(CFG, 'CARD_RATES', None)
     if isinstance(rates, (list, tuple)) and rates:
         cleaned = []
@@ -272,11 +301,22 @@ def _get_card_rates():
                     w = float(item['weight'])
                 except Exception:
                     continue
-                if item['type'] in CARD_POOL and w > 0:
+                if item['type'] in pool and w > 0:
                     cleaned.append({'type': item['type'], 'weight': w})
         if cleaned:
-            return cleaned
-    return CARD_RATES_DEFAULT
+            return _add_unlocked_skill_rates(cleaned)
+    return _add_unlocked_skill_rates(list(CARD_RATES_DEFAULT))
+
+
+def _add_unlocked_skill_rates(rates):
+    pool = set(get_current_card_pool())
+    existing = {r['type'] for r in rates}
+    if talent_state:
+        extra = talent_state.get('unlocked_cards', set())
+        for c in extra:
+            if c in pool and c not in existing:
+                rates.append({'type': c, 'weight': SKILL_CARD_WEIGHT})
+    return rates
 
 def _weighted_choice(card_rates):
     total = sum(c['weight'] for c in card_rates)
@@ -303,7 +343,9 @@ def _card_display_name(name):
         'lumberyard':'伐木場',
         'thunder':'雷電元素',
         'ice':'冰元素',
-        'poison':'毒元素'
+        'poison':'毒元素',
+        'skill_frost_field': '寒霜領域',
+        'skill_thunder_burst': '雷霆爆裂',
     }
     return mapping.get(name, name)
 # === 卡片圖快取與縮放 ===
@@ -446,7 +488,7 @@ SFX_DEATH   = None
 SFX_COIN    = None
 SFX_LEVELUP = None
 SFX_CLICK   = None
-BGM_PATH    = "assets/sfx/bgMusic.WAV"
+BGM_PATH    = "assets/sfx/bgMusic_merrychristmas.WAV"
 SFX_DIR     = "assets/sfx"
 SFX_VOL     = 0.6   # 全局音量（0~1）
 BGM_VOL     = 0.35
@@ -530,6 +572,21 @@ ICE_HIT_IMG_SIZE = getattr(CFG, 'ICE_HIT_IMG_SIZE', 56)
 
 # --- 魔法石 ---
 MAGIC_STONES = 0
+
+# --- 主選單下雪效果 ---
+SNOW_ENABLED = getattr(CFG, 'SNOW_ENABLED', True)
+SNOW_MAX_FLAKES = getattr(CFG, 'SNOW_MAX_FLAKES', 120)
+SNOWFLAKES = []  # [{'x':float,'y':float,'vy':float,'r':int}]
+
+# --- 聖誕文字特效 ---
+SHOW_CHRISTMAS_TEXT = getattr(CFG, 'SHOW_CHRISTMAS_TEXT', True)
+
+
+def get_magic_stone_cap():
+    bonus = 0
+    if talent_state:
+        bonus = talent_state.get('magic_stone_cap_add', 0)
+    return MAX_MAGIC_STONES + max(0, int(bonus))
 
 
 # --- 價格表（建塔 / 升級 / 進化）---
@@ -701,7 +758,8 @@ def _talent_on_creep_kill(creep):
 
 def _maybe_drop_magic_stone():
     global MAGIC_STONES
-    if MAGIC_STONES >= MAX_MAGIC_STONES:
+    cap = get_magic_stone_cap()
+    if MAGIC_STONES >= cap:
         return
     base = MAGIC_STONE_BASE_DROP
     add_ratio = 0.0
@@ -711,7 +769,7 @@ def _maybe_drop_magic_stone():
             base *= 2.0
     chance = max(0.0, min(1.0, base + add_ratio))
     if random.random() < chance:
-        MAGIC_STONES = min(MAX_MAGIC_STONES, MAGIC_STONES + 1)
+        MAGIC_STONES = min(cap, MAGIC_STONES + 1)
         add_notice("獲得魔法石", (180, 230, 255))
         sfx(SFX_COIN)
 
@@ -733,6 +791,25 @@ def _talent_choice_text(talent, idx):
     else:
         lines = [header + talent.get('name', 'Talent')]
     return lines
+
+
+def _available_magic_stones():
+    return MAGIC_STONES
+
+
+def _spend_magic_stones(amount):
+    global MAGIC_STONES
+    try:
+        need = int(amount)
+    except Exception:
+        need = 0
+    need = max(0, need)
+    if talent_state:
+        need = max(0, need - talent_state.get('skills', {}).get('cost_reduction', 0))
+    if MAGIC_STONES < need:
+        return False
+    MAGIC_STONES -= need
+    return True
 
 
 def open_talent_selection():
@@ -1254,6 +1331,17 @@ else:
 
 # Define SMALL font for use in draw_hand_bar()
 SMALL = pygame.font.Font(font_path, 14) if font_path else pygame.font.SysFont("arial", 14)
+
+# 聖誕文字專用字體（優先使用表情字體，若無則沿用 BIG）
+if os.path.exists(EMOJI_FONT_PATH):
+    print('yes')
+    try:
+        CHRISTMAS_FONT = pygame.font.Font(EMOJI_FONT_PATH, 42)
+    except Exception:
+        CHRISTMAS_FONT = BIG
+else:
+    print('no')
+    CHRISTMAS_FONT = BIG
 
 # 將手牌列往上抬高一些，避免被底部遮擋
 HAND_BAR_MARGIN_BOTTOM = 36  # 將手牌列往上抬高一些，避免被底部遮擋
@@ -2069,7 +2157,7 @@ def draw_panel():
 
     # 魔法石顯示（右上角）
     if GEMSTONE_IMG:
-        icons = MAX_MAGIC_STONES
+        icons = get_magic_stone_cap()
         size = GEMSTONE_IMG.get_width()
         margin = STATUS_ICON_MARGIN
         start_x = W - margin - icons * (size + 4) + 4
@@ -2080,7 +2168,7 @@ def draw_panel():
             alpha = 255 if filled else 80
             img.set_alpha(alpha)
             screen.blit(img, (start_x + i * (size + 4), y))
-        count_txt = SMALL.render(f"x{MAGIC_STONES}/{MAX_MAGIC_STONES}", True, (230, 240, 255))
+        count_txt = SMALL.render(f"x{MAGIC_STONES}/{icons}", True, (230, 240, 255))
         screen.blit(count_txt, (start_x, y + size + 2))
     # 修復按鈕
     btn_w, btn_h = 150, 28
@@ -2237,6 +2325,62 @@ def draw_hand_bar():
         draw_x += slot_w + gap
 
 # =========================
+# 主選單雪花
+def _spawn_snowflake(y_min=-20, y_max=None):
+    if y_max is None:
+        y_max = H
+    return {
+        'x': random.uniform(0, W),
+        'y': random.uniform(y_min, y_max),
+        'vy': random.uniform(1.0, 2.5),
+        'r': random.randint(1, 3)
+    }
+
+
+def _update_snowflakes():
+    if not SNOW_ENABLED:
+        return
+    while len(SNOWFLAKES) < SNOW_MAX_FLAKES:
+        SNOWFLAKES.append(_spawn_snowflake())
+    alive = []
+    for f in SNOWFLAKES:
+        f['y'] += f['vy']
+        if f['y'] > H + 10:
+            continue
+        alive.append(f)
+    SNOWFLAKES[:] = alive
+    while len(SNOWFLAKES) < SNOW_MAX_FLAKES:
+        SNOWFLAKES.append(_spawn_snowflake(y_min=-40, y_max=0))
+
+
+def _draw_snowflakes():
+    if not SNOW_ENABLED or not SNOWFLAKES:
+        return
+    for f in SNOWFLAKES:
+        pygame.draw.circle(screen, (235, 240, 255), (int(f['x']), int(f['y'])), f['r'])
+
+
+def _draw_christmas_text():
+    if not SHOW_CHRISTMAS_TEXT:
+        return
+    msg = "Merry Christmas"
+    t = pygame.time.get_ticks() / 1000.0
+    pulse = 0.95 + 0.06 * math.sin(t * 2.0)
+    color = (220, 240, 255)
+    try:
+        base = BIG.render(msg, True, color)
+    except Exception:
+        return
+    img = pygame.transform.rotozoom(base, 45, pulse)
+    alpha = 180 + int(50 * math.sin(t * 1.4))
+    img.set_alpha(max(0, min(255, alpha)))
+    margin = 20
+    rect = img.get_rect()
+    rect.topright = (W - margin, margin)
+    screen.blit(img, rect)
+
+
+# =========================
 # 主選單繪製
 def draw_main_menu():
     screen.fill((16, 20, 35))
@@ -2244,6 +2388,8 @@ def draw_main_menu():
         screen.blit(BG_IMG, (0,0))
         # 蓋一層半透明深色讓文字更清楚
         dim = pygame.Surface((W,H), pygame.SRCALPHA); dim.fill((0,0,0,120)); screen.blit(dim,(0,0))
+    _update_snowflakes(); _draw_snowflakes()
+    _draw_christmas_text()
     logo_offset = LEFT if LOGO_IMG else 0
     if LOGO_IMG:
         lr = LOGO_IMG.get_rect()
@@ -3468,6 +3614,13 @@ def use_card_on_grid(r, c):
         selected_card = None
         return
 
+    # ---- 技能卡：消耗魔法石立即施放 ----
+    if card in SKILL_CARDS:
+        if _cast_skill_card(card):
+            hand.pop(card_index)
+            selected_card = None
+        return
+
     # ---- 升級卡：將已有塔等級 +1（最高 3 級）----
     if card == "upgrade":
         for t in towers:
@@ -3562,6 +3715,54 @@ def use_card_on_grid(r, c):
 
     add_notice("沒有選到已建塔的格子可升級", (255,120,120))
 #-----------
+
+def _cast_skill_card(card):
+    data = SKILL_CARDS.get(card)
+    if not data:
+        return
+    cost = data.get('stones', 0)
+    if not _spend_magic_stones(cost):
+        add_notice(f"魔法石不足，需要 {cost} 顆", (255, 200, 140))
+        sfx(SFX_CLICK)
+        return False
+    if card == 'skill_frost_field':
+        sec = float(data.get('freeze_sec', 2.5))
+        ttl = max(1, int(sec * 60))
+        for m in creeps:
+            if not m.get('alive'):
+                continue
+            if not _creep_can_receive_effect(m, 'freeze'):
+                continue
+            eff = m.setdefault('effects', {})
+            eff['freeze'] = {'ttl': ttl}
+        add_notice(f"施放寒霜領域（-{cost} 魔法石）", (180, 230, 255))
+        sfx(SFX_LEVELUP)
+    elif card == 'skill_thunder_burst':
+        dmg = int(data.get('damage', 8))
+        hit_any = False
+        for m in creeps:
+            if not m.get('alive'):
+                continue
+            m['hp'] -= dmg
+            hit_any = True
+            cx, cy = center_px(m['r'], int(m['c']))
+            hits.append({'x': cx, 'y': cy, 'ttl': 12, 'ttl_max': 12, 'dmg': dmg, 'color': (200, 220, 255)})
+            if m['hp'] <= 0:
+                m['alive'] = False
+                corpses.append({'x': cx, 'y': cy, 'ttl': 24})
+                reward_amt = reward_for(m.get('type', 'slime'))
+                gains.append({'x': cx, 'y': cy - 6, 'ttl': GAIN_TTL, 'amt': reward_amt})
+                global gold
+                gold += reward_amt
+                m['rewarded'] = True
+                sfx(SFX_DEATH); sfx(SFX_COIN)
+                _talent_on_creep_kill(m)
+        if hit_any:
+            add_notice(f"施放雷霆爆裂（-{cost} 魔法石）", (220, 230, 255))
+            sfx(SFX_LEVELUP)
+        else:
+            add_notice("沒有目標", (255,200,150))
+    return True
 
 # =========================
 # 遊戲狀態切換輔助

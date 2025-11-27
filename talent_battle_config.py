@@ -121,6 +121,14 @@ _reg('mana_focus', '奧術專注', '技能卡魔石消耗 -1', 'SR', ['skill'],
      'skill_cost_reduce', {'minus': 1})
 _reg('thunder_reflect', '雷鳴反射', '雷電技能追加一次連鎖', 'SR', ['skill','lightning'],
      'skill_lightning_echo', {'extra_bounce': 1})
+_reg('gemfinder', '寶石搜尋', '魔法石掉落率 +5%', 'R', ['skill','gem'],
+     'magic_stone_drop', {'add_ratio': 0.05})
+_reg('gem_mastery', '奧術匠師', '解鎖技能卡：寒霜領域（消耗魔法石）', 'SR', ['skill','gem'],
+     'unlock_skill_card', {'cards': ['skill_frost_field']})
+_reg('gem_overload', '過載契約', '最大魔法石上限 +1，魔法石掉落 +3%', 'SR', ['skill','gem'],
+     'gem_cap_bonus', {'cap_add': 1, 'drop_add': 0.03})
+_reg('gemstorm', '寶石風暴', '解鎖技能卡：雷霆爆裂（消耗 2 魔法石，全圖傷害）', 'SSR', ['ultimate','gem'],
+     'unlock_skill_card', {'cards': ['skill_thunder_burst']})
 
 # --- Tactical ---
 _reg('mulligan', '戰略撤退', '下一波開始前可免費重抽整手牌一次', 'R', ['tactic','card'],
@@ -248,6 +256,10 @@ def apply_talent_effect(tid: str, state: Dict) -> None:
     elif ek == 'magic_stone_drop':
         econ['magic_stone_drop_add'] = econ.get('magic_stone_drop_add', 0.0) + p.get('add_ratio', 0.0)
 
+    elif ek == 'gem_cap_bonus':
+        state['magic_stone_cap_add'] = state.get('magic_stone_cap_add', 0) + p.get('cap_add', 0)
+        econ['magic_stone_drop_add'] = econ.get('magic_stone_drop_add', 0.0) + p.get('drop_add', 0.0)
+
     elif ek == 'skill_cd_mul':
         skills['cooldown_mul'] = skills.get('cooldown_mul', 1.0) * p.get('mul', 1.0)
 
@@ -263,6 +275,14 @@ def apply_talent_effect(tid: str, state: Dict) -> None:
 
     elif ek == 'skill_lightning_echo':
         skills['lightning_echo'] = skills.get('lightning_echo', 0) + p.get('extra_bounce', 0)
+
+    elif ek == 'unlock_skill_card':
+        cards = p.get('cards') or []
+        if isinstance(cards, str):
+            cards = [cards]
+        unlocked = state.setdefault('unlocked_cards', set())
+        for c in cards:
+            unlocked.add(str(c))
 
     elif ek == 'free_reroll_once':
         state['free_reroll_available'] = True
