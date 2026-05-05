@@ -1,3 +1,7 @@
 *.pyc
 .DS_Store
 /__pycache__
+# 音效轉檔留下的舊 WAV 備份
+assets/sfx/_old_wav/
+# pygbag 建置產物
+build/
