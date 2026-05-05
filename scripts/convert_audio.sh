@@ -58,7 +58,8 @@ for wav in "$SFX_DIR"/*.wav; do
     quality="5"   # ~160 kbps，短音效保留銳利度
   fi
 
-  ffmpeg -y -loglevel error -i "$wav" -c:a "$ENCODER" $EXTRA_FLAGS -q:a "$quality" "$ogg"
+  # -ac 2 強制 stereo（內建 vorbis encoder 只吃 2 channel）
+  ffmpeg -y -loglevel error -i "$wav" -ac 2 -c:a "$ENCODER" $EXTRA_FLAGS -q:a "$quality" "$ogg"
 
   old_size=$(stat -f%z "$wav" 2>/dev/null || stat -c%s "$wav")
   new_size=$(stat -f%z "$ogg" 2>/dev/null || stat -c%s "$ogg")
