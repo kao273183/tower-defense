@@ -56,23 +56,45 @@ GLYPH_FALLBACK = {
 
 
 # 卡名 → 推薦 icon 圖路徑（優先使用塔本體圖而非卡片圖，避免「卡上有卡」）
-DEFAULT_ICON_PATHS = {
-    "fire":      "assets/pic/firetower.png",
-    "water":     "assets/pic/watertower.png",
-    "wind":      "assets/pic/windtower.png",
-    "land":      "assets/pic/landtower.png",
-    "thunder":   "assets/pic/thundertower.png",
-    "ice":       "assets/pic/icetower.png",
-    "poison":    "assets/pic/poisontower.png",
-    "basic":     "assets/pic/tower_lv1.png",
-    "upgrade":   "assets/pic/up-arrow.png",
-    "1money":    "assets/pic/game-coin.png",
-    "2money":    "assets/pic/game-coin.png",
-    "3money":    "assets/pic/game-coin.png",
-    "lumberyard":"assets/pic/lumberyard.png",
-    "skill_frost_field":   "assets/pic/IcePick.png",
-    "skill_thunder_burst": "assets/pic/lightning.png",
-}
+# 從 asset_registry 取值，確保與 main.py 共用同一份路徑來源。
+try:
+    import asset_registry as _REG
+    DEFAULT_ICON_PATHS = {
+        "fire":      _REG.IMAGES.get('tower_fire',  ''),
+        "water":     _REG.IMAGES.get('tower_water', ''),
+        "wind":      _REG.IMAGES.get('tower_wind',  ''),
+        "land":      _REG.IMAGES.get('tower_land',  ''),
+        "thunder":   _REG.IMAGES.get('tower_thunder', ''),
+        "ice":       _REG.IMAGES.get('tower_ice',    ''),
+        "poison":    _REG.IMAGES.get('tower_poison', ''),
+        "basic":     _REG.IMAGES.get('tower_lv1',  ''),
+        "upgrade":   _REG.IMAGES.get('ui_arrow',   ''),
+        "1money":    _REG.IMAGES.get('gain_coin',  ''),
+        "2money":    _REG.IMAGES.get('gain_coin',  ''),
+        "3money":    _REG.IMAGES.get('gain_coin',  ''),
+        "lumberyard": _REG.IMAGES.get('lumberyard', ''),
+        "skill_frost_field":   _REG.IMAGES.get('fx_ice_hit',   ''),
+        "skill_thunder_burst": _REG.IMAGES.get('fx_lightning', ''),
+    }
+except ImportError:
+    # 無 registry 時的 fallback（保持模組可獨立使用）
+    DEFAULT_ICON_PATHS = {
+        "fire":      "assets/pic/firetower.png",
+        "water":     "assets/pic/watertower.png",
+        "wind":      "assets/pic/windtower.png",
+        "land":      "assets/pic/landtower.png",
+        "thunder":   "assets/pic/thundertower.png",
+        "ice":       "assets/pic/icetower.png",
+        "poison":    "assets/pic/poisontower.png",
+        "basic":     "assets/pic/tower_lv1.png",
+        "upgrade":   "assets/pic/up-arrow.png",
+        "1money":    "assets/pic/game-coin.png",
+        "2money":    "assets/pic/game-coin.png",
+        "3money":    "assets/pic/game-coin.png",
+        "lumberyard":"assets/pic/lumberyard.png",
+        "skill_frost_field":   "assets/pic/IcePick.png",
+        "skill_thunder_burst": "assets/pic/lightning.png",
+    }
 
 
 _icon_cache = {}
