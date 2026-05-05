@@ -154,15 +154,17 @@ _apply_theme(THEME)
 # ---------------------------------------------------------------------------
 SFX_DIR = 'assets/sfx'
 
+# 全部使用 OGG 並用小寫檔名（pygbag/Web 對 WAV 不友善、檔案大；瀏覽器又區分大小寫）
+# 在 desktop 跑 main.py 時若 .ogg 不存在會優雅 fallback（_load_sfx 檢查 os.path.exists）
 SOUNDS = {
-    'bgm':       'assets/sfx/bgMusic_merrychristmas.WAV',
-    'shoot':     os.path.join(SFX_DIR, 'shoot.wav'),
-    'hit':       os.path.join(SFX_DIR, 'hit.wav'),
-    'death':     os.path.join(SFX_DIR, 'death.wav'),
-    'coin':      os.path.join(SFX_DIR, 'coin.wav'),
-    'levelup':   os.path.join(SFX_DIR, 'levelup.wav'),
-    'click':     os.path.join(SFX_DIR, 'click.wav'),
-    'draw':      os.path.join(SFX_DIR, 'draw.wav'),
+    'bgm':       os.path.join(SFX_DIR, 'bgmusic_merrychristmas.ogg'),
+    'shoot':     os.path.join(SFX_DIR, 'shoot.ogg'),
+    'hit':       os.path.join(SFX_DIR, 'hit.ogg'),
+    'death':     os.path.join(SFX_DIR, 'death.ogg'),
+    'coin':      os.path.join(SFX_DIR, 'coin.ogg'),
+    'levelup':   os.path.join(SFX_DIR, 'levelup.ogg'),
+    'click':     os.path.join(SFX_DIR, 'click.ogg'),
+    'draw':      os.path.join(SFX_DIR, 'draw.ogg'),
 }
 
 
