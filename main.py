@@ -1,5 +1,5 @@
 ﻿# -*- coding:utf-8 -*-
-import pygame, sys, math, random, os
+import pygame, sys, math, random, os, asyncio
 from collections import Counter
 from game_config import CREEP_CONFIG, get_wave_creeps
 from talent_battle_config import (
@@ -4131,14 +4131,42 @@ def generate_random_map():
     MAP = m
     return True
 
-def main():
+async def main():
     global tick, life, running, next_spawns, game_state
+    # 觸控長按偵測（手機上模擬右鍵 = 賣塔/取消）
+    _touch_state = {'fid': None, 'start_ms': 0, 'pos': (0, 0), 'fired': False}
+    LONG_PRESS_MS = 450
+    LONG_PRESS_TOL = 24  # 像素
     while True:
+        await asyncio.sleep(0)
+        now_ms = pygame.time.get_ticks()
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT: pygame.quit(); sys.exit()
             elif ev.type == pygame.KEYDOWN: handle_keys(ev)
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1: handle_click(ev.pos)
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 3: handle_right_click(ev.pos)
+            elif ev.type == pygame.FINGERDOWN:
+                # 行動裝置觸控按下：記錄起始位置與時間，等放開或長按時觸發
+                fx, fy = int(ev.x * W), int(ev.y * H)
+                _touch_state.update({'fid': ev.finger_id, 'start_ms': now_ms,
+                                     'pos': (fx, fy), 'fired': False})
+            elif ev.type == pygame.FINGERMOTION:
+                # 移動超過容忍距離視為拖動，取消長按
+                if _touch_state['fid'] == ev.finger_id and not _touch_state['fired']:
+                    fx, fy = int(ev.x * W), int(ev.y * H)
+                    sx, sy = _touch_state['pos']
+                    if abs(fx - sx) > LONG_PRESS_TOL or abs(fy - sy) > LONG_PRESS_TOL:
+                        _touch_state['fid'] = None
+            elif ev.type == pygame.FINGERUP:
+                if _touch_state['fid'] == ev.finger_id and not _touch_state['fired']:
+                    handle_click(_touch_state['pos'])
+                    _touch_state['fid'] = None
+        # 長按 → 右鍵
+        if _touch_state['fid'] is not None and not _touch_state['fired']:
+            if now_ms - _touch_state['start_ms'] >= LONG_PRESS_MS:
+                handle_right_click(_touch_state['pos'])
+                _touch_state['fired'] = True
+                _touch_state['fid'] = None
 
         if game_state == GAME_LOADING:
             # 若仍在載入（極少數情況），持續顯示載入畫面
@@ -4193,4 +4221,4 @@ def main():
             update_lumberyards(dt)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
