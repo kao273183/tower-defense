@@ -354,12 +354,46 @@ CARD_SURFACES = {}          # 原始圖
 CARD_SURF_SCALED = {}       # 縮放後圖 (依 slot 尺寸)
 BG_CARD_IMG = None          # 預先縮好的卡底
 
+USE_PROCEDURAL_CARDS = True  # True: 程式繪製統一風格卡面；False: 使用 CARD_IMAGES 中的 PNG
+_PROCEDURAL_CARD_NAMES = (
+    'basic', 'fire', 'water', 'wind', 'land',
+    'thunder', 'ice', 'poison',
+    'upgrade', 'lumberyard',
+    '1money', '2money', '3money',
+    'skill_frost_field', 'skill_thunder_burst',
+)
+_MONEY_AMOUNTS = {'1money': 1, '2money': 2, '3money': 3}
+
 def _init_card_assets():
-    """一次性載入卡片圖並縮放到卡槽尺寸，避免每幀重複 load/scale。"""
+    """一次性載入卡片圖並縮放到卡槽尺寸，避免每幀重複 load/scale。
+    若 USE_PROCEDURAL_CARDS=True，則改用 card_renderer 產生統一風格卡面。"""
     global CARD_SURFACES, CARD_SURF_SCALED, BG_CARD_IMG
     CARD_SURFACES = {}
     CARD_SURF_SCALED = {}
-    # 載入所有卡圖
+
+    if USE_PROCEDURAL_CARDS:
+        import card_renderer as _cr
+        slot_w, slot_h = CARD_SLOT_SIZE
+        fonts = _cr.make_fonts(font_path, slot_w, slot_h)
+        for name in _PROCEDURAL_CARD_NAMES:
+            cost = CARD_COSTS.get(name, 0)
+            money = _MONEY_AMOUNTS.get(name)
+            surf = _cr.render_card(
+                name=name,
+                display_name=_card_display_name(name),
+                cost=cost,
+                size=CARD_SLOT_SIZE,
+                fonts=fonts,
+                money_amount=money,
+            )
+            CARD_SURFACES[name] = surf
+            # 直接寫入 scaled 快取，避免 get_card_scaled 再縮一輪造成白邊
+            CARD_SURF_SCALED[(name, CARD_SLOT_SIZE)] = surf
+        # 卡背用程式繪製，取代原 bg 圖
+        BG_CARD_IMG = _cr.render_card_back(CARD_SLOT_SIZE, fonts)
+        return
+
+    # 傳統路徑：載入 PNG
     for k, p in CARD_IMAGES.items():
         if p and os.path.exists(p):
             try:
