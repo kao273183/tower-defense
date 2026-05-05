@@ -19,6 +19,21 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   exit 1
 fi
 
+# 偵測可用的 vorbis encoder
+ENCODER=""
+EXTRA_FLAGS=""
+if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q '\blibvorbis\b'; then
+  ENCODER="libvorbis"
+elif ffmpeg -hide_banner -encoders 2>/dev/null | grep -q '^ A....D vorbis '; then
+  ENCODER="vorbis"
+  EXTRA_FLAGS="-strict experimental"
+else
+  echo "ERROR: ffmpeg has no vorbis encoder."
+  echo "Try: brew reinstall ffmpeg"
+  exit 1
+fi
+echo "Using encoder: $ENCODER"
+
 if [ ! -d "$SFX_DIR" ]; then
   echo "ERROR: $SFX_DIR not found. Run from project root."
   exit 1
@@ -43,7 +58,7 @@ for wav in "$SFX_DIR"/*.wav; do
     quality="5"   # ~160 kbps，短音效保留銳利度
   fi
 
-  ffmpeg -y -loglevel error -i "$wav" -c:a libvorbis -q:a "$quality" "$ogg"
+  ffmpeg -y -loglevel error -i "$wav" -c:a "$ENCODER" $EXTRA_FLAGS -q:a "$quality" "$ogg"
 
   old_size=$(stat -f%z "$wav" 2>/dev/null || stat -c%s "$wav")
   new_size=$(stat -f%z "$ogg" 2>/dev/null || stat -c%s "$ogg")
