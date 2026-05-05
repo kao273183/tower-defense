@@ -1,5 +1,5 @@
 ﻿# -*- coding:utf-8 -*-
-import pygame, sys, math, random, os
+import pygame, sys, math, random, os, asyncio
 from collections import Counter
 from game_config import CREEP_CONFIG, get_wave_creeps
 from talent_battle_config import (
@@ -9,6 +9,7 @@ from talent_battle_config import (
 )
 
 import game_config as CFG
+import asset_registry as REG
 
 # --- detect web (pygbag/pyodide) ---
 IS_WEB = (sys.platform == "emscripten")
@@ -69,16 +70,16 @@ GAME_PLAY    = 'play'
 GAME_HELP    = 'help'
 GAME_LOADING = 'loading'
 game_state   = GAME_LOADING
-EMOJI_FONT_PATH = "assets/font/NotoColorEmoji.ttf"
+EMOJI_FONT_PATH = REG.FONTS['emoji']
 # 主選單按鈕樣式
 BTN_W, BTN_H = 260, 56
 BTN_GAP = 18
 # ---- 外部地圖檔設定 ----
 MAP_USE_FILE    = True
-MAP_FILE_PATH   = "assets/map/map1.txt"  # 可用字元: '0'=可建, '1'=道路, '2'=牆, '3'=不可建, 'S'=出怪, 'C'=主堡
+MAP_FILE_PATH   = REG.MAPS['default']  # 可用字元: '0'=可建, '1'=道路, '2'=牆, '3'=不可建, 'S'=出怪, 'C'=主堡
 
 # --- 地圖選擇相關 ---
-MAPS_DIR        = "assets/map"
+MAPS_DIR        = REG.MAPS['dir']
 MAP_CHOICES     = []   # [{'name': 'map1', 'path': 'assets/map/map1.txt'}, ...]
 RANDOM_MAP_TOKEN = "__RANDOM_MAP__"
 selected_map_idx = 0
@@ -178,22 +179,22 @@ WOOD_REPAIR_HP = getattr(CFG, 'WOOD_REPAIR_HP', 10)              # 單次修復 
 WOOD_REPAIR_LIMIT_PER_CLICK = getattr(CFG, 'WOOD_REPAIR_LIMIT_PER_CLICK', 1)  # 單次修復可自訂倍數
 # 卡面圖與費用（使用你的素材）
 CARD_IMAGES = {
-    "basic":   "assets/pic/Basic_Tower.png",
-    "fire":    "assets/pic/fireCard.png",
-    "wind":    "assets/pic/WindCard.png",
-    "water":   "assets/pic/waterCard.png",
-    "land":    "assets/pic/landCard.png",
-    "upgrade": "assets/pic/UpgradeCard.png",   # 升級卡（請將圖放在此路徑）
-    "1money": "assets/pic/money1.png",
-    "2money": "assets/pic/money2.png",
-    "3money": "assets/pic/money3.png",
-    "bg":      "assets/pic/BgCard.png",        # 卡底背景
-    "lumberyard": "assets/pic/lumberyardCard.png",#伐物場
-    "thunder": "assets/pic/lightningCard.png",
-    "ice": "assets/pic/iceCard.png",
-    "poison": "assets/pic/poisonCard.png",
-    "skill_frost_field": "assets/pic/skill_frost_field.png",
-    "skill_thunder_burst": "assets/pic/skill_thunder_burst.png",
+    "basic":   REG.IMAGES['card_basic'],
+    "fire":    REG.IMAGES['card_fire'],
+    "wind":    REG.IMAGES['card_wind'],
+    "water":   REG.IMAGES['card_water'],
+    "land":    REG.IMAGES['card_land'],
+    "upgrade": REG.IMAGES['card_upgrade'],
+    "1money":  REG.IMAGES['card_money1'],
+    "2money":  REG.IMAGES['card_money2'],
+    "3money":  REG.IMAGES['card_money3'],
+    "bg":      REG.IMAGES['card_bg'],
+    "lumberyard": REG.IMAGES['card_lumberyard'],
+    "thunder": REG.IMAGES['card_thunder'],
+    "ice":     REG.IMAGES['card_ice'],
+    "poison":  REG.IMAGES['card_poison'],
+    "skill_frost_field":   REG.IMAGES['card_skill_frost_field'],
+    "skill_thunder_burst": REG.IMAGES['card_skill_thunder_burst'],
 }
 
 # 某些卡面本身已含有外框，避免再疊一層底圖（否則看起來像多重外框）
@@ -354,12 +355,46 @@ CARD_SURFACES = {}          # 原始圖
 CARD_SURF_SCALED = {}       # 縮放後圖 (依 slot 尺寸)
 BG_CARD_IMG = None          # 預先縮好的卡底
 
+USE_PROCEDURAL_CARDS = True  # True: 程式繪製統一風格卡面；False: 使用 CARD_IMAGES 中的 PNG
+_PROCEDURAL_CARD_NAMES = (
+    'basic', 'fire', 'water', 'wind', 'land',
+    'thunder', 'ice', 'poison',
+    'upgrade', 'lumberyard',
+    '1money', '2money', '3money',
+    'skill_frost_field', 'skill_thunder_burst',
+)
+_MONEY_AMOUNTS = {'1money': 1, '2money': 2, '3money': 3}
+
 def _init_card_assets():
-    """一次性載入卡片圖並縮放到卡槽尺寸，避免每幀重複 load/scale。"""
+    """一次性載入卡片圖並縮放到卡槽尺寸，避免每幀重複 load/scale。
+    若 USE_PROCEDURAL_CARDS=True，則改用 card_renderer 產生統一風格卡面。"""
     global CARD_SURFACES, CARD_SURF_SCALED, BG_CARD_IMG
     CARD_SURFACES = {}
     CARD_SURF_SCALED = {}
-    # 載入所有卡圖
+
+    if USE_PROCEDURAL_CARDS:
+        import card_renderer as _cr
+        slot_w, slot_h = CARD_SLOT_SIZE
+        fonts = _cr.make_fonts(font_path, slot_w, slot_h)
+        for name in _PROCEDURAL_CARD_NAMES:
+            cost = CARD_COSTS.get(name, 0)
+            money = _MONEY_AMOUNTS.get(name)
+            surf = _cr.render_card(
+                name=name,
+                display_name=_card_display_name(name),
+                cost=cost,
+                size=CARD_SLOT_SIZE,
+                fonts=fonts,
+                money_amount=money,
+            )
+            CARD_SURFACES[name] = surf
+            # 直接寫入 scaled 快取，避免 get_card_scaled 再縮一輪造成白邊
+            CARD_SURF_SCALED[(name, CARD_SLOT_SIZE)] = surf
+        # 卡背用程式繪製，取代原 bg 圖
+        BG_CARD_IMG = _cr.render_card_back(CARD_SLOT_SIZE, fonts)
+        return
+
+    # 傳統路徑：載入 PNG
     for k, p in CARD_IMAGES.items():
         if p and os.path.exists(p):
             try:
@@ -410,7 +445,7 @@ CASTLE = {
 }
 # --- 小怪（grunt）圖示設定（可用圖片或程式繪圖） ---
 GRUNT_USE_IMAGE   = True                 # True: 用圖片；False: 用下方程式繪圖
-GRUNT_IMG_PATH    = "assets/pic/monster.png" # 你的小怪圖片路徑（請放到專案 assets/）
+GRUNT_IMG_PATH    = REG.IMAGES['monster_grunt'] # 小怪圖路徑（從 asset_registry 取）
 GRUNT_IMG_SIZE    = 32                   # 載入後縮放到這個正方形大小 (px)
 # 下方為程式繪圖備援（若圖片不存在或載入失敗會使用）
 GRUNT_RADIUS      = 14                   # 半徑（整體大小）
@@ -421,41 +456,41 @@ GRUNT_OUTLINE_W   = 2                    # 外框線寬
 
 # --- 其他怪物（runner / brute / boss）圖片設定 ---
 RUNNER_USE_IMAGE = True
-RUNNER_IMG_PATH  = "assets/pic/runner.png"
+RUNNER_IMG_PATH  = REG.IMAGES['monster_runner']
 RUNNER_IMG_SIZE  = 32
 
 BRUTE_USE_IMAGE  = True
-BRUTE_IMG_PATH   = "assets/pic/brute.png"
+BRUTE_IMG_PATH   = REG.IMAGES['monster_brute']
 BRUTE_IMG_SIZE   = 36
 
 BOSS_USE_IMAGE   = True
-BOSS_IMG_PATH    = "assets/pic/boss.png"
+BOSS_IMG_PATH    = REG.IMAGES['monster_boss']
 BOSS_IMG_SIZE    = 44
 # 怪物圖片
 SLIME_USE_IMAGE  = True
-SLIME_IMG_PATH   = "assets/pic/slime.png"
+SLIME_IMG_PATH   = REG.IMAGES['monster_slime']
 SLIME_IMG_SIZE   = 32
 BAT_USE_IMAGE    = True
-BAT_IMG_PATH     = "assets/pic/bat.png"
+BAT_IMG_PATH     = REG.IMAGES['monster_bat']
 BAT_IMG_SIZE     = 32
 GIANT_USE_IMAGE  = True
-GIANT_IMG_PATH   = "assets/pic/giant.png"
+GIANT_IMG_PATH   = REG.IMAGES['monster_giant']
 GIANT_IMG_SIZE   = 32
 SANTELMO_USE_IMAGE = True
-SANTELMO_IMG_PATH = "assets/pic/santelmo.png"
+SANTELMO_IMG_PATH = REG.IMAGES['monster_santelmo']
 SANTELMO_IMG_SIZE = 32
 # --- 擊中效果（命中時的爆炸/特效）---
 HIT_USE_IMAGE = True
-HIT_IMG_PATH  = "assets/pic/blast.png"
+HIT_IMG_PATH  = REG.IMAGES['fx_hit']
 HIT_IMG_SIZE  = 32   # 會在繪製時做些微放大縮小
 # --- 死亡圖示（怪物死亡時顯示）---
 DEATH_USE_IMAGE = True
-DEATH_IMG_PATH  = "assets/pic/dead.png"
+DEATH_IMG_PATH  = REG.IMAGES['fx_death']
 DEATH_IMG_SIZE  = 40
 
 # --- 擊殺掉落金幣：浮動「+金幣」提示 ---
 GAIN_USE_IMAGE   = True
-GAIN_IMG_PATH    = "assets/pic/game-coin.png"
+GAIN_IMG_PATH    = REG.IMAGES['gain_coin']
 GAIN_IMG_SIZE    = 20      # 小圖示大小
 GAIN_TTL         = 30      # 存在幀數（約 0.5 秒）
 GAIN_RISE        = 0.6     # 每幀向上飄的像素值
@@ -463,22 +498,22 @@ GAIN_TEXT_COLOR  = (255, 234, 140)
 
 # 預告用箭頭：顯示下一波的 S 出口
 ARROW_IMG = None
-ARROW_IMG_PATH = "assets/pic/up-arrow.png"
+ARROW_IMG_PATH = REG.IMAGES['ui_arrow']
 ARROW_IMG_SIZE = 28
 
 # 右上角狀態圖示（開始/暫停）
 PLAY_IMG = None
 PAUSE_IMG = None
-PLAY_IMG_PATH  = "assets/pic/play.png"
-PAUSE_IMG_PATH = "assets/pic/pause.png"
+PLAY_IMG_PATH  = REG.IMAGES['ui_play']
+PAUSE_IMG_PATH = REG.IMAGES['ui_pause']
 STATUS_ICON_SIZE = 24
 STATUS_ICON_MARGIN = 12  # 與右上角邊距
 
 # --- 背景與 Logo ---
 BG_IMG = None
-BG_IMG_PATH = "assets/pic/bg.jpg"   # 建議 1920x1080 或 1280x720，會自動縮放
+BG_IMG_PATH = REG.IMAGES['bg_main']   # 建議 1920x1080 或 1280x720，會自動縮放
 LOGO_IMG = None
-LOGO_IMG_PATH = "assets/pic/logo.png"
+LOGO_IMG_PATH = REG.IMAGES['logo']
 LOGO_MAX_W = 420
 
 # --- 音效與 BGM ---
@@ -488,50 +523,50 @@ SFX_DEATH   = None
 SFX_COIN    = None
 SFX_LEVELUP = None
 SFX_CLICK   = None
-BGM_PATH    = "assets/sfx/bgMusic_merrychristmas.WAV"
-SFX_DIR     = "assets/sfx"
+BGM_PATH    = REG.SOUNDS['bgm']
+SFX_DIR     = REG.SFX_DIR
 SFX_VOL     = 0.6   # 全局音量（0~1）
 BGM_VOL     = 0.35
 
 # --- 防禦塔各等級圖片設定（缺圖則退回程式繪圖） ---
 TOWER_USE_IMAGES = True
 TOWER_IMG_PATHS = {
-    0: "assets/pic/tower_lv1.png",
-    1: "assets/pic/tower_lv2.png",
-    2: "assets/pic/tower_lv3.png",
-    3: "assets/pic/tower_lv3.png",   # 最高等沿用第三張
+    0: REG.IMAGES['tower_lv1'],
+    1: REG.IMAGES['tower_lv2'],
+    2: REG.IMAGES['tower_lv3'],
+    3: REG.IMAGES['tower_lv3'],   # 最高等沿用第三張
 }
 
 # 單一等級塔圖示大小
 TOWER_IMG_SIZE  = 36  # 圖片縮放邊長（像素）
 
 ROCKET_TOWER_IMG       = None
-ROCKET_TOWER_IMG_PATH  = "assets/pic/rocket_tower.png"
+ROCKET_TOWER_IMG_PATH  = REG.IMAGES['tower_rocket']
 
-FIREBALL_IMG_PATH = "assets/pic/fireball.png"
+FIREBALL_IMG_PATH = REG.IMAGES['projectile_fireball']
 FIREBALL_IMG = None
 FIREBALL_IMG_SIZE = getattr(CFG, 'FIREBALL_IMG_SIZE', 28)
 
-WIND_PROJECTILE_IMG_PATH = "assets/pic/wind.png"
+WIND_PROJECTILE_IMG_PATH = REG.IMAGES['projectile_wind']
 WIND_PROJECTILE_IMG = None
 WIND_PROJECTILE_IMG_SIZE = getattr(CFG, 'WIND_PROJECTILE_IMG_SIZE', 26)
 
-ICE_PROJECTILE_IMG_PATH = "assets/pic/snowball.png"
+ICE_PROJECTILE_IMG_PATH = REG.IMAGES['projectile_ice']
 ICE_PROJECTILE_IMG = None
 ICE_PROJECTILE_IMG_SIZE = getattr(CFG, 'ICE_PROJECTILE_IMG_SIZE', 26)
 
-GEMSTONE_IMG_PATH = "assets/pic/gemstone.png"
+GEMSTONE_IMG_PATH = REG.IMAGES['gemstone']
 GEMSTONE_IMG = None
 GEMSTONE_IMG_SIZE = getattr(CFG, 'GEMSTONE_IMG_SIZE', 26)
 MAX_MAGIC_STONES = 5
 MAGIC_STONE_BASE_DROP = getattr(CFG, 'MAGIC_STONE_DROP_CHANCE', 0.03)
 
 DEFAULT_ELEMENT_TOWER_PATHS = {
-    'fire':    "assets/pic/firetower.png",
-    'water':   "assets/pic/watertower.png",
-    'land':    "assets/pic/landtower.png",
-    'wind':    "assets/pic/windtower.png",
-    'thunder': "assets/pic/thundertower.png",
+    'fire':    REG.IMAGES['tower_fire'],
+    'water':   REG.IMAGES['tower_water'],
+    'land':    REG.IMAGES['tower_land'],
+    'wind':    REG.IMAGES['tower_wind'],
+    'thunder': REG.IMAGES['tower_thunder'],
 }
 ELEMENT_TOWER_IMAGE_PATHS = dict(DEFAULT_ELEMENT_TOWER_PATHS)
 if hasattr(CFG, 'ELEMENT_TOWER_IMAGES') and isinstance(CFG.ELEMENT_TOWER_IMAGES, dict):
@@ -540,11 +575,11 @@ if hasattr(CFG, 'ELEMENT_TOWER_IMAGES') and isinstance(CFG.ELEMENT_TOWER_IMAGES,
             ELEMENT_TOWER_IMAGE_PATHS[_elem] = _path
 ELEMENT_TOWER_IMGS = {}
 # --- 伐木場 ---
-LUMBERYARD_IMG_PATH = "assets/pic/lumberyard.png"
+LUMBERYARD_IMG_PATH = REG.IMAGES['lumberyard']
 LUMBERYARD_IMG = None
 # --- 升級特效（LEVEL UP） ---
 LEVELUP_USE_IMAGE = True
-LEVELUP_IMG_PATH  = "assets/pic/level-up.png"
+LEVELUP_IMG_PATH  = REG.IMAGES['fx_levelup']
 LEVELUP_IMG_SIZE  = 40
 LEVELUP_TTL       = 24
 # --- 建塔 / 升級成本設定 ---
@@ -554,19 +589,19 @@ LEVELUP_RISE      = 0.5
 BUILD_COST = 10  # 蓋一座箭塔消耗金幣
 
 # --- 雷電特效 ---
-LIGHTNING_IMG_PATH = "assets/pic/lightning.png"
+LIGHTNING_IMG_PATH = REG.IMAGES['fx_lightning']
 LIGHTNING_IMG_MAX_HEIGHT = getattr(CFG, 'LIGHTNING_IMG_MAX_HEIGHT', 180)
 LIGHTNING_IMG = None
 LIGHTNING_ARC_IMG = None
 LIGHTNING_BOLT_IMG = None
 
 # --- 火焰特效 ---
-BURN_IMG_PATH = "assets/pic/burn.png"
+BURN_IMG_PATH = REG.IMAGES['fx_burn']
 BURN_IMG = None
 BURN_IMG_SIZE = getattr(CFG, 'BURN_IMG_SIZE', 54)
 
 # --- 冰凍特效 ---
-ICE_HIT_IMG_PATH = "assets/pic/IcePickhit.png"
+ICE_HIT_IMG_PATH = REG.IMAGES['fx_ice_hit']
 ICE_HIT_IMG = None
 ICE_HIT_IMG_SIZE = getattr(CFG, 'ICE_HIT_IMG_SIZE', 56)
 
@@ -1346,7 +1381,11 @@ else:
 # 將手牌列往上抬高一些，避免被底部遮擋
 HAND_BAR_MARGIN_BOTTOM = 36  # 將手牌列往上抬高一些，避免被底部遮擋
 
-screen = pygame.display.set_mode((W, H))
+# Web/HiDPI 友好：SCALED flag 讓 pygame 自動處理高 DPI 縮放（Mac Retina 等）
+if IS_WEB:
+    screen = pygame.display.set_mode((W, H), pygame.SCALED)
+else:
+    screen = pygame.display.set_mode((W, H))
 #標題
 pygame.display.set_caption(TITLENAME)
 
@@ -1462,11 +1501,10 @@ TOWER_IMGS  = {}     # 依等級載入
 LEVELUP_IMG = None   # 升級特效圖
 CASTLE_IMG = None    # 城堡圖片
 WALL_IMG = None      # 牆壁圖片
-#CASTLE_IMG_PATH = "assets/pic/castle.png"
-CASTLE_IMG_PATH = "assets/pic/christmastown.png"
-#GREY_IMG_PATH = "assets/pic/activist.png" # 灰色背景圖片 預設
-GREY_IMG_PATH = "assets/pic/tree.png"      # 灰色背景圖片 萬聖節
-WALL_IMG_PATH = "assets/pic/wall.png"
+# 主題化資源（切換主題請改 asset_registry.THEME）
+CASTLE_IMG_PATH = REG.IMAGES['castle']
+GREY_IMG_PATH   = REG.IMAGES['grey']
+WALL_IMG_PATH   = REG.IMAGES['wall']
 CASTLE_IMG_SIZE = 48
 WALL_IMG_SIZE = 40
 try:
@@ -1659,21 +1697,20 @@ try:
     LOAD_STEP = 6
     loading_tick("載入背景與標誌…")
 
-    # 音效載入（安全載入）
-    def _load_sfx(name, vol=SFX_VOL):
-        p = os.path.join(SFX_DIR, name)
-        if os.path.exists(p):
-            s = pygame.mixer.Sound(p)
+    # 音效載入（安全載入）— 路徑來自 asset_registry.SOUNDS
+    def _load_sfx(path, vol=SFX_VOL):
+        if path and os.path.exists(path):
+            s = pygame.mixer.Sound(path)
             s.set_volume(vol)
             return s
         return None
-    SFX_SHOOT   = _load_sfx('shoot.wav',   0.35)
-    SFX_HIT     = _load_sfx('hit.wav',     0.30)
-    SFX_DEATH   = _load_sfx('death.wav',   0.50)
-    SFX_COIN    = _load_sfx('coin.wav',    0.55)
-    SFX_LEVELUP = _load_sfx('levelup.wav', 0.6)
-    SFX_CLICK   = _load_sfx('click.wav',   0.45)
-    SFX_DRAW    = _load_sfx('draw.wav',    0.55)
+    SFX_SHOOT   = _load_sfx(REG.SOUNDS['shoot'],   0.35)
+    SFX_HIT     = _load_sfx(REG.SOUNDS['hit'],     0.30)
+    SFX_DEATH   = _load_sfx(REG.SOUNDS['death'],   0.50)
+    SFX_COIN    = _load_sfx(REG.SOUNDS['coin'],    0.55)
+    SFX_LEVELUP = _load_sfx(REG.SOUNDS['levelup'], 0.6)
+    SFX_CLICK   = _load_sfx(REG.SOUNDS['click'],   0.45)
+    SFX_DRAW    = _load_sfx(REG.SOUNDS['draw'],    0.55)
 
     LOAD_STEP = 7
     loading_tick("載入音效…")
@@ -1686,9 +1723,22 @@ try:
             pygame.mixer.music.play(-1)
         except Exception:
             pass
-except Exception:
-    pass
-_init_card_assets()
+except Exception as _e:
+    # 之前是 `except Exception: pass`，會默默吃掉所有載入錯誤導致 web 上灰屏。
+    # 印出來才能診斷。
+    import traceback
+    print("=" * 60)
+    print("[LOADING ERROR]", type(_e).__name__, _e)
+    traceback.print_exc()
+    print("=" * 60)
+try:
+    _init_card_assets()
+except Exception as _e:
+    import traceback
+    print("=" * 60)
+    print("[CARD INIT ERROR]", type(_e).__name__, _e)
+    traceback.print_exc()
+    print("=" * 60)
 LOAD_STEP = 8
 draw_loading("完成！", LOAD_STEP, LOAD_TOTAL)
 LOADING = False
@@ -4131,14 +4181,42 @@ def generate_random_map():
     MAP = m
     return True
 
-def main():
+async def main():
     global tick, life, running, next_spawns, game_state
+    # 觸控長按偵測（手機上模擬右鍵 = 賣塔/取消）
+    _touch_state = {'fid': None, 'start_ms': 0, 'pos': (0, 0), 'fired': False}
+    LONG_PRESS_MS = 450
+    LONG_PRESS_TOL = 24  # 像素
     while True:
+        await asyncio.sleep(0)
+        now_ms = pygame.time.get_ticks()
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT: pygame.quit(); sys.exit()
             elif ev.type == pygame.KEYDOWN: handle_keys(ev)
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1: handle_click(ev.pos)
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 3: handle_right_click(ev.pos)
+            elif ev.type == pygame.FINGERDOWN:
+                # 行動裝置觸控按下：記錄起始位置與時間，等放開或長按時觸發
+                fx, fy = int(ev.x * W), int(ev.y * H)
+                _touch_state.update({'fid': ev.finger_id, 'start_ms': now_ms,
+                                     'pos': (fx, fy), 'fired': False})
+            elif ev.type == pygame.FINGERMOTION:
+                # 移動超過容忍距離視為拖動，取消長按
+                if _touch_state['fid'] == ev.finger_id and not _touch_state['fired']:
+                    fx, fy = int(ev.x * W), int(ev.y * H)
+                    sx, sy = _touch_state['pos']
+                    if abs(fx - sx) > LONG_PRESS_TOL or abs(fy - sy) > LONG_PRESS_TOL:
+                        _touch_state['fid'] = None
+            elif ev.type == pygame.FINGERUP:
+                if _touch_state['fid'] == ev.finger_id and not _touch_state['fired']:
+                    handle_click(_touch_state['pos'])
+                    _touch_state['fid'] = None
+        # 長按 → 右鍵
+        if _touch_state['fid'] is not None and not _touch_state['fired']:
+            if now_ms - _touch_state['start_ms'] >= LONG_PRESS_MS:
+                handle_right_click(_touch_state['pos'])
+                _touch_state['fired'] = True
+                _touch_state['fid'] = None
 
         if game_state == GAME_LOADING:
             # 若仍在載入（極少數情況），持續顯示載入畫面
@@ -4193,4 +4271,4 @@ def main():
             update_lumberyards(dt)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
