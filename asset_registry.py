@@ -19,6 +19,13 @@ API：
 
 import os
 
+# Kenney TD pack 根目錄（CC0；只挑風格中性的 tile/特效/小物件使用）
+_KENNEY = 'assets/pic/kenney_tower-defense-top-down/PNG/Default size'
+
+def _k(num):
+    """便利：給 tile 編號回傳 Kenney 包路徑。例如 _k(272) → coin。"""
+    return os.path.join(_KENNEY, f'towerDefense_tile{num:03d}.png')
+
 # ---------------------------------------------------------------------------
 # 主題：影響 castle / grey 等季節性素材切換
 #   'default'   : 一般
@@ -85,16 +92,17 @@ IMAGES = {
     'projectile_ice':       'assets/pic/snowball.png',
 
     # === 命中 / 死亡 / 特效 ===
-    'fx_hit':       'assets/pic/blast.png',
+    # fx_hit / fx_burn 來自 Kenney pack（風格中性，視覺打擊感更強）
+    'fx_hit':       _k(298),  # 大型橘色爆炸
     'fx_death':     'assets/pic/dead.png',
-    'fx_burn':      'assets/pic/burn.png',
+    'fx_burn':      _k(296),  # 火焰
     'fx_ice_hit':   'assets/pic/IcePickhit.png',
     'fx_lightning': 'assets/pic/lightning.png',
     'fx_levelup':   'assets/pic/level-up.png',
 
-    # === 拾取 / 經濟 ===
-    'gain_coin':  'assets/pic/game-coin.png',
-    'gemstone':   'assets/pic/gemstone.png',
+    # === 拾取 / 經濟（Kenney 通用 sprite） ===
+    'gain_coin':  _k(272),    # 黃色硬幣
+    'gemstone':   _k(134),    # 綠水晶簇
 
     # === UI ===
     'ui_arrow':  'assets/pic/up-arrow.png',
@@ -104,11 +112,11 @@ IMAGES = {
     # === 場景 / 主畫面 ===
     'bg_main': 'assets/pic/bg.jpg',
     'logo':    'assets/pic/logo.png',
-    'wall':    'assets/pic/wall.png',
+    'wall':    _k(180),  # Kenney 石塊（取代原 wall.png）
 
     # === 主題相關（會被 THEMED 覆蓋；下面是 default 的值） ===
     'castle': 'assets/pic/castle.png',
-    'grey':   'assets/pic/activist.png',
+    'grey':   _k(24),    # Kenney 純綠草地（取代 activist.png 作可建造區）
 }
 
 
@@ -119,11 +127,9 @@ THEMED = {
     'default': {},
     'halloween': {
         'castle': 'assets/pic/halloween_castle.png',
-        'grey':   'assets/pic/tree.png',
     },
     'christmas': {
         'castle': 'assets/pic/christmastown.png',
-        'grey':   'assets/pic/tree.png',
     },
 }
 
