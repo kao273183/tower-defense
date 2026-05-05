@@ -1723,9 +1723,22 @@ try:
             pygame.mixer.music.play(-1)
         except Exception:
             pass
-except Exception:
-    pass
-_init_card_assets()
+except Exception as _e:
+    # 之前是 `except Exception: pass`，會默默吃掉所有載入錯誤導致 web 上灰屏。
+    # 印出來才能診斷。
+    import traceback
+    print("=" * 60)
+    print("[LOADING ERROR]", type(_e).__name__, _e)
+    traceback.print_exc()
+    print("=" * 60)
+try:
+    _init_card_assets()
+except Exception as _e:
+    import traceback
+    print("=" * 60)
+    print("[CARD INIT ERROR]", type(_e).__name__, _e)
+    traceback.print_exc()
+    print("=" * 60)
 LOAD_STEP = 8
 draw_loading("完成！", LOAD_STEP, LOAD_TOTAL)
 LOADING = False
