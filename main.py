@@ -1381,7 +1381,11 @@ else:
 # 將手牌列往上抬高一些，避免被底部遮擋
 HAND_BAR_MARGIN_BOTTOM = 36  # 將手牌列往上抬高一些，避免被底部遮擋
 
-screen = pygame.display.set_mode((W, H))
+# Web/HiDPI 友好：SCALED flag 讓 pygame 自動處理高 DPI 縮放（Mac Retina 等）
+if IS_WEB:
+    screen = pygame.display.set_mode((W, H), pygame.SCALED)
+else:
+    screen = pygame.display.set_mode((W, H))
 #標題
 pygame.display.set_caption(TITLENAME)
 
